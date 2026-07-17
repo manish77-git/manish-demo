@@ -10,7 +10,9 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 ///
 /// No fake, bot, or placeholder players are ever created.
 class SocketProvider extends ChangeNotifier {
-  static const String _serverUrl = 'http://localhost:3000';
+  static String get _serverUrl => kIsWeb && !Uri.base.toString().contains('localhost')
+      ? 'https://draw-battle-backend-production.up.railway.app'
+      : 'http://localhost:3000';
 
   io.Socket? _socket;
   String? _roomCode;

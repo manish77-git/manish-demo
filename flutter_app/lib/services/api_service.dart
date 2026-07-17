@@ -2,11 +2,16 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../providers/auth_provider.dart';
 
+import 'package:flutter/foundation.dart';
+
 /// Configuration for backend API
 class ApiConfig {
-  // Use 10.0.2.2 for Android Emulator to reach localhost.
-  // Or use your tunneling URL if testing on a real device.
-  static const String baseUrl = 'http://localhost:3000/api'; 
+  static String get baseUrl {
+    if (kIsWeb && !Uri.base.toString().contains('localhost')) {
+      return 'https://draw-battle-backend-production.up.railway.app/api';
+    }
+    return 'http://localhost:3000/api';
+  }
 }
 
 /// Centralized service for communicating with the Node.js backend.
