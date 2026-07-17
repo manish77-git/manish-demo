@@ -1,0 +1,20 @@
+# Node
+node_modules/
+.env
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.mode
+*.lock
+doc/api/
+.pub/
+
+# IDE / Operating System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
