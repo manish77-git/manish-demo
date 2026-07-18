@@ -65,12 +65,12 @@ class _TimerWidgetState extends State<TimerWidget>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: isUrgent
-                ? AppTheme.accentWarm.withOpacity(0.15)
+                ? AppTheme.accentCoral.withOpacity(0.15)
                 : AppTheme.cardDark.withOpacity(0.8),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: isUrgent
-                  ? AppTheme.accentWarm.withOpacity(0.5)
+                  ? AppTheme.accentCoral.withOpacity(0.5)
                   : Colors.white.withOpacity(0.1),
               width: 1.5,
             ),
@@ -78,28 +78,9 @@ class _TimerWidgetState extends State<TimerWidget>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 28,
-                height: 28,
-                child: Stack(
-                  children: [
-                    CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 3,
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        isUrgent ? AppTheme.accentWarm : AppTheme.accentSecondary,
-                      ),
-                    ),
-                    Center(
-                      child: Icon(
-                        Icons.timer_outlined,
-                        size: 14,
-                        color: isUrgent ? AppTheme.accentWarm : AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
+              SpacerWidgetWrapper(
+                progress: progress,
+                isUrgent: isUrgent,
               ),
               const SizedBox(width: 8),
               TweenAnimationBuilder<double>(
@@ -113,7 +94,7 @@ class _TimerWidgetState extends State<TimerWidget>
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: isUrgent ? AppTheme.accentWarm : AppTheme.textPrimary,
+                        color: isUrgent ? AppTheme.accentCoral : AppTheme.textDark,
                         letterSpacing: 1,
                       ),
                     ),
@@ -131,5 +112,43 @@ class _TimerWidgetState extends State<TimerWidget>
     final mins = seconds ~/ 60;
     final secs = seconds % 60;
     return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+}
+
+class SpacerWidgetWrapper extends StatelessWidget {
+  final double progress;
+  final bool isUrgent;
+
+  const SpacerWidgetWrapper({
+    super.key,
+    required this.progress,
+    required this.isUrgent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: Stack(
+        children: [
+          CircularProgressIndicator(
+            value: progress,
+            strokeWidth: 3,
+            backgroundColor: Colors.white.withOpacity(0.1),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              isUrgent ? AppTheme.accentCoral : AppTheme.accentLight,
+            ),
+          ),
+          Center(
+            child: Icon(
+              Icons.timer_outlined,
+              size: 14,
+              color: isUrgent ? AppTheme.accentCoral : AppTheme.textSecDark,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

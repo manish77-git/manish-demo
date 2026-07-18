@@ -15,7 +15,7 @@ export async function getLeaderboard(req, res, next) {
 
     let entries = [];
     try {
-      const snapshot = await db.collection('leaderboard')
+      const snapshot = await db.collection('playerStats')
         .orderBy('averageScore', 'desc')
         .limit(limit)
         .get();
@@ -43,7 +43,7 @@ export async function getLeaderboard(req, res, next) {
 export async function getMyRank(req, res, next) {
   try {
     const db = getFirestore();
-    const myDoc = await db.collection('leaderboard').doc(req.user.uid).get();
+    const myDoc = await db.collection('playerStats').doc(req.user.uid).get();
 
     if (!myDoc.exists) {
       return res.json({
@@ -64,7 +64,7 @@ export async function getMyRank(req, res, next) {
     const myData = myDoc.data();
 
     // Calculate rank by counting how many players have a higher average score
-    const higherScoreCount = await db.collection('leaderboard')
+    const higherScoreCount = await db.collection('playerStats')
       .where('averageScore', '>', myData.averageScore)
       .count()
       .get();

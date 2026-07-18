@@ -273,6 +273,8 @@ export async function finalizeGame(sessionId, scores) {
         rank: i + 1,
         totalPlayers: sortedScores.length,
         labels: scoreData.labels,
+        displayName: scoreData.displayName,
+        photoUrl: scoreData.photoUrl,
       }).catch(err => logger.warn(`Failed to record history for ${userId}:`, err.message));
     }
 

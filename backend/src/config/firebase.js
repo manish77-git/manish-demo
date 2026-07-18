@@ -62,8 +62,28 @@ export function getStorage() {
   return storage;
 }
 
-// ─── IN-MEMORY MOCK DATABASE ───────────────────────────────────────────
-const store = {};
+// ─── IN-MEMORY MOCK DATABASE WITH FILE PERSISTENCE ────────────────────
+import { writeFileSync } from 'fs';
+
+const DB_FILE = './database.json';
+let store = {};
+
+if (existsSync(DB_FILE)) {
+  try {
+    store = JSON.parse(readFileSync(DB_FILE, 'utf8'));
+    console.log(`📦 Loaded database from disk: ${Object.keys(store).length} collections`);
+  } catch (err) {
+    console.error('❌ Failed to load database file:', err.message);
+  }
+}
+
+function saveToDisk() {
+  try {
+    writeFileSync(DB_FILE, JSON.stringify(store, null, 2), 'utf8');
+  } catch (err) {
+    console.error('❌ Failed to save database to disk:', err.message);
+  }
+}
 
 class MockFirestoreSnapshot {
   constructor(id, data, exists) {
@@ -91,6 +111,7 @@ class MockQuery {
     this.filters = [];
     this.orders = [];
     this.limitVal = null;
+    this.offsetVal = 0;
   }
 
   where(field, op, value) {
@@ -106,6 +127,22 @@ class MockQuery {
   limit(n) {
     this.limitVal = n;
     return this;
+  }
+
+  offset(n) {
+    this.offsetVal = n;
+    return this;
+  }
+
+  count() {
+    return {
+      get: async () => {
+        const res = await this.get();
+        return {
+          data: () => ({ count: res.size })
+        };
+      }
+    };
   }
 
   async get() {
@@ -127,6 +164,9 @@ class MockQuery {
         if (valA > valB) return o.dir === 'asc' ? 1 : -1;
         return 0;
       });
+    }
+    if (this.offsetVal > 0) {
+      docs = docs.slice(this.offsetVal);
     }
     if (this.limitVal !== null) {
       docs = docs.slice(0, this.limitVal);
@@ -162,6 +202,10 @@ class MockCollection {
     return new MockQuery(this).limit(n);
   }
 
+  offset(n) {
+    return new MockQuery(this).offset(n);
+  }
+
   async get() {
     const docs = Object.values(store[this.path] || {}).map(data => new MockFirestoreSnapshot(data.id, data, true));
     return new MockQuerySnapshot(docs);
@@ -189,6 +233,7 @@ class MockDocument {
       store[this.collection.path] = {};
     }
     store[this.collection.path][this.id] = { ...data, id: this.id };
+    saveToDisk();
     return this;
   }
 
@@ -211,6 +256,7 @@ class MockDocument {
       }
     }
     store[this.collection.path][this.id] = existing;
+    saveToDisk();
     return this;
   }
 }
@@ -235,6 +281,7 @@ class MockBatch {
         await op.docRef.update(op.data);
       }
     }
+    saveToDisk();
   }
 }
 

@@ -55,10 +55,10 @@ class _ScoreCardState extends State<ScoreCard>
   }
 
   Color get _scoreColor {
-    if (widget.score >= 80) return AppTheme.accentSecondary;
-    if (widget.score >= 60) return AppTheme.accentPrimary;
-    if (widget.score >= 40) return AppTheme.accentGold;
-    return AppTheme.accentWarm;
+    if (widget.score >= 80) return AppTheme.accentLight;
+    if (widget.score >= 60) return AppTheme.primaryLight;
+    if (widget.score >= 40) return AppTheme.accentYellow;
+    return AppTheme.accentCoral;
   }
 
   @override
@@ -74,7 +74,7 @@ class _ScoreCardState extends State<ScoreCard>
               gradient: LinearGradient(
                 colors: [
                   _scoreColor.withOpacity(0.15),
-                  AppTheme.surfaceLight,
+                  AppTheme.cardLight,
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -170,7 +170,7 @@ class _ScoreCardState extends State<ScoreCard>
                           label,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.textSecondary,
+                            color: AppTheme.textSecLight,
                           ),
                         ),
                       );

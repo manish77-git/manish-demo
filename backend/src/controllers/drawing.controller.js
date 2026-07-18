@@ -83,11 +83,12 @@ export async function submitDrawing(req, res, next) {
       const scores = {};
 
       for (const [userId, submission] of Object.entries(updatedSession.submissions)) {
+        const player = session.players.find(p => p.userId === userId);
         if (userId === req.user.uid) {
           scores[userId] = {
-            score: evaluation.score,
-            labels: evaluation.labels,
+            ...evaluation,
             displayName: req.user.displayName,
+            photoUrl: req.user.photoUrl || null,
           };
         } else if (submission.drawingBuffer) {
           const otherEval = await evaluateDrawing(
@@ -95,11 +96,10 @@ export async function submitDrawing(req, res, next) {
             session.prompt,
             { drawingTimeSeconds: session.drawingTimeSeconds }
           );
-          const player = session.players.find(p => p.userId === userId);
           scores[userId] = {
-            score: otherEval.score,
-            labels: otherEval.labels,
+            ...otherEval,
             displayName: player?.displayName || 'Unknown',
+            photoUrl: player?.photoUrl || null,
           };
         }
       }
@@ -150,6 +150,17 @@ export async function getGameDrawings(req, res, next) {
     for (const [userId, submission] of Object.entries(session.submissions || {})) {
       drawings[userId] = {
         score: submission.score,
+        displayName: submission.displayName || 'Player',
+        photoUrl: submission.photoUrl,
+        grade: submission.grade,
+        explanation: submission.explanation,
+        objectRecognitionScore: submission.objectRecognitionScore,
+        requiredFeaturesScore: submission.requiredFeaturesScore,
+        compositionScore: submission.compositionScore,
+        creativityScore: submission.creativityScore,
+        strokeQualityScore: submission.strokeQualityScore,
+        strengths: submission.strengths,
+        weaknesses: submission.weaknesses,
         aiLabels: submission.aiLabels,
         submittedAt: submission.submittedAt,
         drawingUrl: submission.drawingUrl,

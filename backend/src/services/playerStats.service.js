@@ -56,6 +56,8 @@ async function updatePlayerStats(userId, gameRecord) {
       const currentStreak = gameRecord.isWin ? (stats.currentWinStreak || 0) + 1 : 0;
 
       await statsRef.update({
+        displayName: gameRecord.displayName || stats.displayName || 'Player',
+        photoUrl: gameRecord.photoUrl || stats.photoUrl || null,
         totalGames: newGames,
         totalWins: newWins,
         totalScore: newTotalScore,
@@ -91,6 +93,8 @@ async function updatePlayerStats(userId, gameRecord) {
       // First game — initialize stats
       const firstStats = {
         userId,
+        displayName: gameRecord.displayName || 'Player',
+        photoUrl: gameRecord.photoUrl || null,
         totalGames: 1,
         totalWins: gameRecord.isWin ? 1 : 0,
         totalScore: gameRecord.score,

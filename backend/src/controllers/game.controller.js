@@ -59,7 +59,10 @@ export async function getGame(req, res, next) {
 
     res.json({
       success: true,
-      data: { session },
+      data: { 
+        session,
+        serverTime: new Date().toISOString()
+      },
     });
   } catch (error) {
     next(error);

@@ -2,25 +2,57 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../config/theme.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../models/leaderboard_entry.dart';
+import '../../services/leaderboard_service.dart';
 import '../../widgets/player_avatar.dart';
+import '../../services/api_service.dart';
 
-/// Global leaderboard screen.
-class LeaderboardScreen extends StatelessWidget {
+/// Global leaderboard screen querying real database entries.
+class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
 
-  static final List<Map<String, dynamic>> _mockLeaderboard = [
-    {'name': 'PixelPicasso', 'avgScore': 94, 'games': 42, 'wins': 31},
-    {'name': 'DrawLord99', 'avgScore': 91, 'games': 38, 'wins': 27},
-    {'name': 'ArtMaster42', 'avgScore': 88, 'games': 55, 'wins': 29},
-    {'name': 'SketchQueen', 'avgScore': 85, 'games': 33, 'wins': 19},
-    {'name': 'InkNinja', 'avgScore': 82, 'games': 47, 'wins': 22},
-    {'name': 'BrushBoss', 'avgScore': 79, 'games': 28, 'wins': 14},
-    {'name': 'DoodlePro', 'avgScore': 76, 'games': 61, 'wins': 20},
-    {'name': 'CanvasKing', 'avgScore': 73, 'games': 22, 'wins': 10},
-    {'name': 'PaintWiz', 'avgScore': 71, 'games': 36, 'wins': 12},
-    {'name': 'ArtRookie', 'avgScore': 68, 'games': 15, 'wins': 5},
-  ];
+  @override
+  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+}
+
+class _LeaderboardScreenState extends State<LeaderboardScreen> {
+  List<LeaderboardEntry> _entries = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLeaderboard();
+  }
+
+  Future<void> _fetchLeaderboard() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final auth = context.read<AuthProvider>();
+      final service = LeaderboardService(
+        baseUrl: ApiConfig.serverUrl,
+        getToken: () => auth.idToken,
+      );
+
+      final list = await service.getLeaderboard(limit: 50);
+      setState(() {
+        _entries = list;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceAll('Exception: ', '');
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,56 +65,150 @@ class LeaderboardScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: Icon(LucideIcons.arrowLeft, color: textColor),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  Expanded(
-                    child: Text(
-                      'Leaderboard',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
+      body: Stack(
+        children: [
+          // Sketchpad background grid lines
+          Positioned.fill(
+            child: CustomPaint(
+              painter: SketchpadBackgroundPainter(
+                gridColor: textColor,
+                isDark: isDark,
               ),
             ),
-            const SizedBox(height: 24),
+          ),
 
-            // Top 3 podium
-            _buildPodium(primaryColor, textColor, textMuted),
-            const SizedBox(height: 24),
+          SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: AppTheme.space16),
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(LucideIcons.arrowLeft, color: textColor),
+                        onPressed: () => Navigator.pop(context),
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: borderColor, width: 2.5),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Leaderboard',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                      const SizedBox(width: 48),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space24),
 
-            // Remaining rankings
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.surfaceDark : Colors.white,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                  border: Border(top: BorderSide(color: borderColor, width: 1.5)),
+                // Main body wrapper
+                Expanded(
+                  child: _isLoading
+                      ? Center(
+                          child: CircularProgressIndicator(color: primaryColor, strokeWidth: 3),
+                        )
+                      : _error != null
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(LucideIcons.alertTriangle, color: AppTheme.accentCoral, size: 36),
+                                  const SizedBox(height: AppTheme.space8),
+                                  Text(
+                                    _error!,
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: AppTheme.space16),
+                                  ElevatedButton(
+                                    onPressed: _fetchLeaderboard,
+                                    child: const Text('Try Again'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _entries.isEmpty
+                              ? _buildEmptyState(cardBg, borderColor, textColor)
+                              : Column(
+                                  children: [
+                                    // Top 3 Podium
+                                    _buildPodium(primaryColor, textColor, textMuted),
+                                    const SizedBox(height: AppTheme.space24),
+
+                                    // Lower Rankings
+                                    Expanded(
+                                      child: Container(
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: isDark ? AppTheme.bgDark : AppTheme.bgLight,
+                                          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                                          border: Border(top: BorderSide(color: borderColor, width: 2.5)),
+                                        ),
+                                        child: RefreshIndicator(
+                                          onRefresh: _fetchLeaderboard,
+                                          color: primaryColor,
+                                          child: ListView.builder(
+                                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                                            itemCount: _entries.length > 3 ? _entries.length - 3 : 0,
+                                            itemBuilder: (context, index) {
+                                              final player = _entries[index + 3];
+                                              return _buildRankTile(
+                                                player,
+                                                index + 4,
+                                                cardBg,
+                                                borderColor,
+                                                primaryColor,
+                                                textColor,
+                                                textMuted,
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                 ),
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  itemCount: _mockLeaderboard.length - 3,
-                  itemBuilder: (context, index) {
-                    final player = _mockLeaderboard[index + 3];
-                    return _buildRankTile(player, index + 4, cardBg, borderColor, primaryColor, textColor, textMuted);
-                  },
-                ),
-              ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(Color cardBg, Color borderColor, Color textColor) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: AppTheme.space32),
+        padding: const EdgeInsets.all(AppTheme.space32),
+        decoration: AppTheme.gameCardDecoration(
+          color: cardBg,
+          borderColor: borderColor,
+          shadowColor: AppTheme.accentYellow,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.users, size: 48, color: AppTheme.accentYellow),
+            const SizedBox(height: AppTheme.space16),
+            Text(
+              'No players yet. Be the first to play!',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -98,23 +224,23 @@ class LeaderboardScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // 2nd place
-          if (_mockLeaderboard.length > 1)
-            _buildPodiumItem(_mockLeaderboard[1], 2, 80, primaryColor, textColor, textMuted),
+          if (_entries.length > 1)
+            _buildPodiumItem(_entries[1], 2, 80, primaryColor, textColor, textMuted),
           const SizedBox(width: 12),
           // 1st place
-          if (_mockLeaderboard.isNotEmpty)
-            _buildPodiumItem(_mockLeaderboard[0], 1, 100, primaryColor, textColor, textMuted),
+          if (_entries.isNotEmpty)
+            _buildPodiumItem(_entries[0], 1, 100, primaryColor, textColor, textMuted),
           const SizedBox(width: 12),
           // 3rd place
-          if (_mockLeaderboard.length > 2)
-            _buildPodiumItem(_mockLeaderboard[2], 3, 65, primaryColor, textColor, textMuted),
+          if (_entries.length > 2)
+            _buildPodiumItem(_entries[2], 3, 65, primaryColor, textColor, textMuted),
         ],
       ),
     );
   }
 
   Widget _buildPodiumItem(
-    Map<String, dynamic> player,
+    LeaderboardEntry player,
     int rank,
     double height,
     Color primaryColor,
@@ -132,13 +258,13 @@ class LeaderboardScreen extends StatelessWidget {
       child: Column(
         children: [
           PlayerAvatar(
-            displayName: player['name'],
+            displayName: player.displayName,
             rank: rank,
             size: rank == 1 ? 56 : 44,
           ),
           const SizedBox(height: 8),
           Text(
-            player['name'],
+            player.displayName,
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -146,27 +272,22 @@ class LeaderboardScreen extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           Text(
-            'Avg: ${player['avgScore']}',
+            'Avg: ${player.averageScore}',
             style: TextStyle(
               fontSize: 11,
               color: textMuted,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
             height: height,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  color.withOpacity(0.25),
-                  color.withOpacity(0.04),
-                ],
-              ),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+            decoration: AppTheme.gameCardDecoration(
+              color: color.withOpacity(0.08),
+              borderColor: color,
+              shadowColor: color.withOpacity(0.2),
+              radius: AppTheme.radiusMedium,
             ),
             child: Center(
               child: Text(
@@ -181,7 +302,7 @@ class LeaderboardScreen extends StatelessWidget {
   }
 
   Widget _buildRankTile(
-    Map<String, dynamic> player,
+    LeaderboardEntry player,
     int rank,
     Color cardBg,
     Color borderColor,
@@ -190,12 +311,13 @@ class LeaderboardScreen extends StatelessWidget {
     Color textMuted,
   ) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
+      decoration: AppTheme.gameCardDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1.5),
+        borderColor: borderColor,
+        shadowColor: primaryColor.withOpacity(0.15),
+        radius: AppTheme.radiusMedium,
       ),
       child: Row(
         children: [
@@ -205,30 +327,31 @@ class LeaderboardScreen extends StatelessWidget {
               '#$rank',
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w900,
                 color: textMuted,
               ),
             ),
           ),
-          PlayerAvatar(displayName: player['name'], size: 36),
+          PlayerAvatar(displayName: player.displayName, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  player['name'],
+                  player.displayName,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${player['games']} games · ${player['wins']} wins',
+                  '${player.gamesPlayed} games · ${player.wins}W - ${player.losses}L · WR: ${player.winRate}% · Streak: ${player.currentWinStreak}🔥 · Best: ${player.bestScore}',
                   style: TextStyle(
                     fontSize: 11,
                     color: textMuted,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
@@ -237,15 +360,16 @@ class LeaderboardScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.1),
+              color: primaryColor.withOpacity(0.12),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor, width: 2),
             ),
             child: Text(
-              '${player['avgScore']}',
+              '${player.averageScore}',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
-                color: primaryColor,
+                color: textColor,
               ),
             ),
           ),

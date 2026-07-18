@@ -20,12 +20,12 @@ class PlayerAvatar extends StatelessWidget {
     // Generate consistent color from display name
     final hash = displayName.hashCode;
     final colors = [
-      AppTheme.accentPrimary,
-      AppTheme.accentSecondary,
-      AppTheme.accentWarm,
-      AppTheme.accentGold,
-      const Color(0xFF9B59B6),
-      const Color(0xFF45B7D1),
+      const Color(0xFF7C3AED), // Violet
+      const Color(0xFF4F46E5), // Indigo
+      const Color(0xFFEF4444), // Red
+      const Color(0xFFFBBF24), // Amber
+      const Color(0xFF10B981), // Emerald
+      const Color(0xFF06B6D4), // Cyan
     ];
     return colors[hash.abs() % colors.length];
   }
@@ -81,7 +81,7 @@ class PlayerAvatar extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: _rankColor,
-                border: Border.all(color: AppTheme.surfaceLight, width: 2),
+                border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
               ),
               child: Center(
                 child: Text(
@@ -121,7 +121,7 @@ class PlayerAvatar extends StatelessWidget {
       case 3:
         return const Color(0xFFCD7F32);
       default:
-        return AppTheme.surfaceLight;
+        return const Color(0xFF64748B);
     }
   }
 
@@ -138,3 +138,4 @@ class PlayerAvatar extends StatelessWidget {
     }
   }
 }
+

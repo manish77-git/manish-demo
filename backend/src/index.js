@@ -4,11 +4,12 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
 import env from './config/env.js';
-import { initializeFirebase } from './config/firebase.js';
+import { initializeFirebase, getFirestore } from './config/firebase.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import logger from './utils/logger.js';
 import LobbyManager from './services/lobbyManager.js';
 import { checkGeminiStatus } from './services/geminiEvaluator.service.js';
+import { getRandomPrompt } from './models/prompts.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
@@ -66,10 +67,16 @@ async function bootstrap() {
 
       const roomCode = lobbyManager.createRoom(socket.id, uid, displayName);
       socket.join(roomCode);
+      socket.roomCode = roomCode;
+      socket.userId = uid;
 
-      const players = lobbyManager.getPlayers(roomCode);
+      const room = lobbyManager.rooms.get(roomCode);
       socket.emit('room:created', { roomCode });
-      io.to(roomCode).emit('room:update', { roomCode, players });
+      io.to(roomCode).emit('room:update', {
+        roomCode,
+        players: room.players,
+        settings: room.settings
+      });
 
       logger.info(`Room ${roomCode} created by ${displayName} (${socket.id})`);
     });
@@ -79,14 +86,25 @@ async function bootstrap() {
       const { roomCode, uid, displayName } = data || {};
       if (!roomCode || !uid || !displayName) return;
 
-      const players = lobbyManager.joinRoom(roomCode, socket.id, uid, displayName);
-      if (!players) {
+      const room = lobbyManager.joinRoom(roomCode, socket.id, uid, displayName);
+      if (!room) {
         socket.emit('room:error', { message: 'Room not found or full.' });
         return;
       }
 
       socket.join(roomCode);
-      io.to(roomCode).emit('room:update', { roomCode, players });
+      socket.roomCode = roomCode;
+      socket.userId = uid;
+
+      io.to(roomCode).emit('room:update', {
+        roomCode,
+        players: room.players,
+        settings: room.settings
+      });
+
+      // If there are existing strokes, send history to re-connecting player
+      const history = lobbyManager.getStrokes(roomCode);
+      socket.emit('drawing:history', { history });
 
       logger.info(`${displayName} joined room ${roomCode} (${socket.id})`);
     });
@@ -98,10 +116,154 @@ async function bootstrap() {
         socket.leave(result.roomCode);
         io.to(result.roomCode).emit('room:update', {
           roomCode: result.roomCode,
-          players: result.players,
+          players: result.room ? result.room.players : [],
+          settings: result.room ? result.room.settings : null
         });
         logger.info(`Socket ${socket.id} left room ${result.roomCode}`);
       }
+    });
+
+    // ─── Room: Toggle Ready ───────────────────────────────
+    socket.on('room:toggle_ready', (data) => {
+      const { roomCode, uid } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      const actualUid = uid || socket.userId;
+      if (!actualRoomCode || !actualUid) return;
+
+      const room = lobbyManager.toggleReady(actualRoomCode, actualUid);
+      if (room) {
+        io.to(actualRoomCode).emit('room:update', {
+          roomCode: actualRoomCode,
+          players: room.players,
+          settings: room.settings
+        });
+      }
+    });
+
+    // ─── Room: Update Settings ───────────────────────────
+    socket.on('room:update_settings', (data) => {
+      const { roomCode, settings } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode || !settings) return;
+
+      const room = lobbyManager.updateSettings(actualRoomCode, settings);
+      if (room) {
+        io.to(actualRoomCode).emit('room:update', {
+          roomCode: actualRoomCode,
+          players: room.players,
+          settings: room.settings
+        });
+      }
+    });
+
+    // ─── Real-Time Canvas / Drawing Synchronization ───────
+    socket.on('drawing:stroke', (data) => {
+      const { roomCode, strokes } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode || !socket.userId) return;
+
+      // Save drawing state in memory to preserve progress for reconnects
+      lobbyManager.saveStrokes(actualRoomCode, socket.userId, strokes);
+
+      // Broadcast to all other players in the room
+      socket.to(actualRoomCode).emit('drawing:stroke', {
+        userId: socket.userId,
+        strokes,
+      });
+    });
+
+    socket.on('drawing:clear', (data) => {
+      const { roomCode } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode || !socket.userId) return;
+
+      lobbyManager.saveStrokes(actualRoomCode, socket.userId, []);
+
+      socket.to(actualRoomCode).emit('drawing:clear', {
+        userId: socket.userId,
+      });
+    });
+
+    socket.on('drawing:cursor', (data) => {
+      const { roomCode, x, y } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode || !socket.userId) return;
+
+      socket.to(actualRoomCode).emit('drawing:cursor', {
+        userId: socket.userId,
+        x,
+        y,
+      });
+    });
+
+    // ─── Live Match Controls & Metrics ────────────────────
+    socket.on('match:start', async (data) => {
+      const { roomCode, difficulty, category, duration } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode) return;
+
+      const room = lobbyManager.rooms.get(actualRoomCode);
+      if (room) {
+        room.status = 'playing';
+        if (difficulty) room.settings.difficulty = difficulty;
+        if (category) room.settings.category = category;
+        if (duration) room.settings.duration = parseInt(duration) || 80;
+      }
+
+      const activeSettings = room ? room.settings : { difficulty: 'all', category: 'all', duration: 80 };
+
+      // Select the prompt from the database based on difficulty and category!
+      const promptInfo = getRandomPrompt(activeSettings.difficulty, activeSettings.category);
+      const selectedPrompt = promptInfo.prompt;
+      
+      // Create the game session in the Firestore mock database
+      try {
+        const db = getFirestore();
+        const playersList = room ? room.players : [];
+        const hostPlayer = playersList.find(p => p.isHost) || playersList[0];
+        
+        const session = {
+          id: actualRoomCode,
+          status: 'drawing',
+          prompt: selectedPrompt,
+          promptDifficulty: promptInfo.difficulty,
+          hostId: hostPlayer ? hostPlayer.uid : '',
+          players: playersList.map(p => ({
+            userId: p.uid,
+            displayName: p.displayName,
+            photoUrl: null,
+            status: p.isSpectator ? 'spectator' : 'drawing',
+            joinedAt: new Date().toISOString(),
+          })),
+          maxPlayers: activeSettings.maxPlayers || 8,
+          drawingTimeSeconds: activeSettings.duration,
+          createdAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+          endedAt: null,
+          submissions: {},
+        };
+
+        await db.collection('gameSessions').doc(actualRoomCode).set(session);
+        logger.info(`Game session initialized in database for room: ${actualRoomCode} with prompt "${selectedPrompt}"`);
+      } catch (err) {
+        logger.error(`Failed to initialize game session in database: ${err.message}`);
+      }
+
+      io.to(actualRoomCode).emit('match:start', {
+        prompt: selectedPrompt,
+        duration: activeSettings.duration,
+      });
+    });
+
+    socket.on('match:live_metrics', (data) => {
+      const { roomCode, metrics } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode || !socket.userId) return;
+
+      io.to(actualRoomCode).emit('match:live_metrics', {
+        userId: socket.userId,
+        metrics,
+      });
     });
 
     // ─── Chat ─────────────────────────────────────────────
@@ -150,13 +312,24 @@ async function bootstrap() {
     socket.on('disconnect', () => {
       chatRateLimit.delete(socket.id);
 
-      const result = lobbyManager.leaveRoom(socket.id);
-      if (result && result.players.length > 0) {
+      const result = lobbyManager.disconnectPlayer(socket.id, (roomCode, room) => {
+        // Broadcast the removal of player after timeout
+        io.to(roomCode).emit('room:update', {
+          roomCode,
+          players: room ? room.players : [],
+          settings: room ? room.settings : null
+        });
+        logger.info(`Offline player removed from room ${roomCode}`);
+      });
+
+      if (result) {
+        // Broadcast the offline status immediately
         io.to(result.roomCode).emit('room:update', {
           roomCode: result.roomCode,
-          players: result.players,
+          players: result.room.players,
+          settings: result.room.settings
         });
-        logger.info(`Socket ${socket.id} disconnected from room ${result.roomCode}`);
+        logger.info(`Socket ${socket.id} disconnected, marked offline in room ${result.roomCode}`);
       }
 
       logger.debug(`Socket disconnected: ${socket.id}`);

@@ -6,12 +6,14 @@ import 'package:flutter/foundation.dart';
 
 /// Configuration for backend API
 class ApiConfig {
-  static String get baseUrl {
+  static String get serverUrl {
     if (kIsWeb && !Uri.base.toString().contains('localhost')) {
-      return 'https://draw-battle-backend-production.up.railway.app/api';
+      return 'https://draw-battle-backend-production.up.railway.app';
     }
-    return 'http://localhost:3000/api';
+    return 'http://localhost:3000';
   }
+
+  static String get baseUrl => '$serverUrl/api';
 }
 
 /// Centralized service for communicating with the Node.js backend.
