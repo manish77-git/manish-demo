@@ -128,6 +128,28 @@ flutter run
 | `chat:reaction`       | Client↔   | Send or receive emoji reaction |
 | `chat:error`          | →Client   | Rate-limiting or chat errors   |
 
+## Deployment
+
+### Frontend (Firebase Hosting)
+The Flutter Web frontend has been successfully deployed to Firebase Hosting:
+- **Hosting URL**: [https://drawbattle-io-19283.web.app](https://drawbattle-io-19283.web.app)
+
+To redeploy the frontend:
+```bash
+cd flutter_app
+flutter build web --release
+cd ..
+firebase deploy --only hosting
+```
+
+### Backend (Render / VPS)
+A `render.yaml` blueprint is included in the project root. To deploy the Node.js socket server:
+1. Push this repository to your GitHub account.
+2. Sign in to [Render.com](https://render.com).
+3. Go to **Blueprints** and click **New Blueprint Instance**.
+4. Select this repository and click **Deploy**.
+5. Render will automatically install dependencies and start the backend using the configurations in `render.yaml`.
+
 ## License
 
 MIT
