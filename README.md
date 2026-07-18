@@ -142,13 +142,15 @@ cd ..
 firebase deploy --only hosting
 ```
 
-### Backend (Render / VPS)
-A `render.yaml` blueprint is included in the project root. To deploy the Node.js socket server:
-1. Push this repository to your GitHub account.
-2. Sign in to [Render.com](https://render.com).
-3. Go to **Blueprints** and click **New Blueprint Instance**.
-4. Select this repository and click **Deploy**.
-5. Render will automatically install dependencies and start the backend using the configurations in `render.yaml`.
+### Backend (Railway)
+The Node.js socket backend is successfully deployed and running on Railway:
+- **Backend API URL**: [https://draw-battle-backend-production.up.railway.app](https://draw-battle-backend-production.up.railway.app)
+- **Health Check**: [https://draw-battle-backend-production.up.railway.app/api/health](https://draw-battle-backend-production.up.railway.app/api/health)
+
+To redeploy the backend:
+```bash
+railway up ./backend --path-as-root --service draw-battle-backend --detach
+```
 
 ## License
 
