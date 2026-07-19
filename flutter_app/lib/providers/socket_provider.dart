@@ -44,7 +44,7 @@ class SocketProvider extends ChangeNotifier {
     _socket = io.io(
       _serverUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .disableAutoConnect()
           .build(),
     );
