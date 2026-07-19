@@ -167,10 +167,12 @@ class _ResultsScreenState extends State<ResultsScreen>
     Map<String, dynamic>? opponentStats;
     String winnerText = '';
     Color winnerColor = primaryColor;
+    String opponentId = '';
 
     if (_drawingsData != null) {
       final drawingsMap = _drawingsData!['drawings'] as Map<String, dynamic>;
-      final opponentId = drawingsMap.keys.firstWhere((uid) => uid != myUid, orElse: () => '');
+      final opponentIdVal = drawingsMap.keys.firstWhere((uid) => uid != myUid, orElse: () => '');
+      opponentId = opponentIdVal;
       if (opponentId.isNotEmpty) {
         opponentStats = drawingsMap[opponentId] as Map<String, dynamic>?;
       }
@@ -290,6 +292,21 @@ class _ResultsScreenState extends State<ResultsScreen>
                                 ),
                               ],
                             ),
+                          ),
+                          const SizedBox(height: AppTheme.space24),
+                        ],
+
+                        // 1 to 1 Sketch Comparison
+                        if (_isMultiplayer && _drawingsData != null && _gameId != null) ...[
+                          _buildDrawingComparison(
+                            _gameId!,
+                            myUid,
+                            opponentId,
+                            opponentStats,
+                            cardBg,
+                            borderColor,
+                            textColor,
+                            primaryColor,
                           ),
                           const SizedBox(height: AppTheme.space24),
                         ],
@@ -752,6 +769,200 @@ class _ResultsScreenState extends State<ResultsScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildDrawingComparison(
+    String gameId,
+    String myUid,
+    String opponentId,
+    Map<String, dynamic>? opponentStats,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+  ) {
+    final opponentName = opponentStats?['displayName'] ?? 'Opponent';
+    final opponentScore = (opponentStats?['score'] as num? ?? 0).toInt();
+    
+    final myScore = (_drawingsData?['drawings']?[myUid]?['score'] as num? ?? 0).toInt();
+
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.space24),
+      decoration: AppTheme.gameCardDecoration(
+        color: cardBg,
+        borderColor: borderColor,
+        shadowColor: primaryColor.withOpacity(0.15),
+        radius: AppTheme.radiusLarge,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.images, color: primaryColor, size: 18),
+              const SizedBox(width: AppTheme.space8),
+              Text(
+                '1-to-1 Sketch Comparison',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.space24),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 500;
+              final childWidget = [
+                // My Drawing
+                Expanded(
+                  flex: isWide ? 1 : 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(AppTheme.space12),
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor, width: 2),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'YOUR SKETCH',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: primaryColor,
+                            letterSpacing: 1.0,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: AppTheme.space12),
+                        AspectRatio(
+                          aspectRatio: 1.2,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              color: isDarkTheme(context) ? Colors.black26 : Colors.grey[100],
+                              child: Image.network(
+                                '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$myUid',
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Icon(
+                                      LucideIcons.imageOff,
+                                      color: textColor.withOpacity(0.3),
+                                      size: 32,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppTheme.space12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('You', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('$myScore pts', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: primaryColor)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (isWide) const SizedBox(width: AppTheme.space16) else const SizedBox(height: AppTheme.space16),
+                // Opponent Drawing
+                Expanded(
+                  flex: isWide ? 1 : 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(AppTheme.space12),
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor, width: 2),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'OPPONENT SKETCH',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.accentCoral,
+                            letterSpacing: 1.0,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: AppTheme.space12),
+                        AspectRatio(
+                          aspectRatio: 1.2,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              color: isDarkTheme(context) ? Colors.black26 : Colors.grey[100],
+                              child: opponentId.isNotEmpty
+                                  ? Image.network(
+                                      '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$opponentId',
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Center(
+                                          child: Icon(
+                                            LucideIcons.imageOff,
+                                            color: textColor.withOpacity(0.3),
+                                            size: 32,
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  : Center(
+                                      child: Text(
+                                        'No Opponent',
+                                        style: TextStyle(color: textColor.withOpacity(0.4), fontSize: 12),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppTheme.space12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                opponentName,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text('$opponentScore pts', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.accentCoral)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ];
+
+              return isWide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: childWidget,
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: childWidget,
+                    );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool isDarkTheme(BuildContext context) {
+    return context.read<ThemeProvider>().isDarkMode;
   }
 
   Widget _buildLeaderboardCard(

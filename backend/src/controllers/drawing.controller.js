@@ -183,6 +183,37 @@ export async function getGameDrawings(req, res, next) {
 }
 
 /**
+ * GET /api/drawings/:gameId/image/:userId — Get raw drawing image as PNG stream.
+ */
+export async function getGameDrawingImage(req, res, next) {
+  try {
+    const { gameId, userId } = req.params;
+    const session = await gameService.getGameSession(gameId);
+
+    const submission = session.submissions?.[userId];
+    if (!submission || !submission.drawingBuffer) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Drawing not found for this user' },
+      });
+    }
+
+    let buffer;
+    if (Buffer.isBuffer(submission.drawingBuffer)) {
+      buffer = submission.drawingBuffer;
+    } else if (submission.drawingBuffer && submission.drawingBuffer.type === 'Buffer') {
+      buffer = Buffer.from(submission.drawingBuffer.data);
+    } else {
+      buffer = Buffer.from(submission.drawingBuffer);
+    }
+
+    res.type('image/png').send(buffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * POST /api/drawings/evaluate-solo — Evaluate drawing for practice/solo mode.
  */
 export async function evaluateSoloDrawing(req, res, next) {

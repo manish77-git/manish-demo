@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { submitDrawing, uploadMiddleware, getGameDrawings, evaluateSoloDrawing, analyzeDrawingLive } from '../controllers/drawing.controller.js';
+import { submitDrawing, uploadMiddleware, getGameDrawings, evaluateSoloDrawing, analyzeDrawingLive, getGameDrawingImage } from '../controllers/drawing.controller.js';
 import { getAiStatus } from '../services/geminiEvaluator.service.js';
 
 import { getRandomPrompt } from '../models/prompts.js';
@@ -25,6 +25,7 @@ router.get('/random-prompt', (req, res) => {
     data: promptObj,
   });
 });
+router.get('/:gameId/image/:userId', getGameDrawingImage);
 router.get('/:gameId', getGameDrawings);
 
 export default router;
