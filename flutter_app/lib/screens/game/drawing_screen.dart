@@ -32,7 +32,7 @@ class DrawingScreen extends StatefulWidget {
 }
 
 class _DrawingScreenState extends State<DrawingScreen> {
-  late String _currentPrompt;
+  String _currentPrompt = 'Loading...';
   int _timeLeft = 80;
   Timer? _timer;
   bool _isEvaluating = false;
@@ -88,16 +88,25 @@ class _DrawingScreenState extends State<DrawingScreen> {
       final response = await http.get(
         Uri.parse('${ApiConfig.serverUrl}/api/drawings/random-prompt?category=$category&difficulty=$difficulty'),
         headers: {'Content-Type': 'application/json'},
-      );
+      ).timeout(const Duration(seconds: 4));
 
       final data = jsonDecode(response.body);
       if (data['success'] == true && mounted) {
         setState(() {
           _currentPrompt = data['data']['prompt'] as String;
         });
+      } else if (mounted) {
+        setState(() {
+          _currentPrompt = _practicePrompts[_random.nextInt(_practicePrompts.length)];
+        });
       }
     } catch (e) {
       debugPrint('[DrawingScreen] Error fetching random prompt: $e');
+      if (mounted) {
+        setState(() {
+          _currentPrompt = _practicePrompts[_random.nextInt(_practicePrompts.length)];
+        });
+      }
     }
   }
 

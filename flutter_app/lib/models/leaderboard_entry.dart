@@ -28,16 +28,16 @@ class LeaderboardEntry {
 
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) {
     return LeaderboardEntry(
-      rank: json['rank'] as int? ?? 0,
+      rank: (json['rank'] as num? ?? 0).toInt(),
       userId: json['userId'] as String? ?? '',
       displayName: json['displayName'] as String? ?? 'Anonymous',
       photoUrl: json['photoUrl'] as String?,
-      totalScore: json['totalScore'] as int? ?? 0,
-      gamesPlayed: json['totalGames'] as int? ?? json['gamesPlayed'] as int? ?? 0,
-      gamesWon: json['totalWins'] as int? ?? json['gamesWon'] as int? ?? 0,
-      averageScore: json['averageScore'] as int? ?? 0,
-      bestScore: json['bestScore'] as int? ?? 0,
-      currentWinStreak: json['currentWinStreak'] as int? ?? 0,
+      totalScore: (json['totalScore'] as num? ?? 0).toInt(),
+      gamesPlayed: ((json['totalGames'] ?? json['gamesPlayed']) as num? ?? 0).toInt(),
+      gamesWon: ((json['totalWins'] ?? json['gamesWon']) as num? ?? 0).toInt(),
+      averageScore: (json['averageScore'] as num? ?? 0).toInt(),
+      bestScore: (json['bestScore'] as num? ?? 0).toInt(),
+      currentWinStreak: (json['currentWinStreak'] as num? ?? 0).toInt(),
       lastPlayedAt: json['lastPlayedAt'] as String? ?? json['lastPlayed'] as String? ?? '',
     );
   }

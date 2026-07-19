@@ -763,7 +763,7 @@ class _ResultsScreenState extends State<ResultsScreen>
     Color primaryColor,
   ) {
     final sortedPlayers = drawingsMap.entries.toList()
-      ..sort((a, b) => (b.value['score'] as int? ?? 0).compareTo(a.value['score'] as int? ?? 0));
+      ..sort((a, b) => ((b.value['score'] as num? ?? 0).toInt()).compareTo((a.value['score'] as num? ?? 0).toInt()));
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.space24),
@@ -793,7 +793,7 @@ class _ResultsScreenState extends State<ResultsScreen>
             final pUid = item.key;
             final pData = item.value as Map<String, dynamic>;
             final pName = pData['displayName'] ?? 'Player';
-            final pScore = pData['score'] as int? ?? 0;
+            final pScore = (pData['score'] as num? ?? 0).toInt();
             final pGrade = pData['grade'] as String? ?? 'F';
             final isMe = pUid == myUid;
 
