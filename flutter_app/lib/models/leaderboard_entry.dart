@@ -28,16 +28,16 @@ class LeaderboardEntry {
 
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) {
     return LeaderboardEntry(
-      rank: (json['rank'] as num? ?? 0).toInt(),
+      rank: _parseInt(json['rank']),
       userId: json['userId']?.toString() ?? '',
       displayName: json['displayName']?.toString() ?? 'Anonymous',
       photoUrl: json['photoUrl']?.toString(),
-      totalScore: (json['totalScore'] as num? ?? 0).toInt(),
-      gamesPlayed: ((json['totalGames'] ?? json['gamesPlayed'] ?? json['gamesCount'] ?? 0) as num? ?? 0).toInt(),
-      gamesWon: ((json['totalWins'] ?? json['gamesWon'] ?? json['winsCount'] ?? 0) as num? ?? 0).toInt(),
-      averageScore: (json['averageScore'] as num? ?? 0).toInt(),
-      bestScore: (json['bestScore'] as num? ?? 0).toInt(),
-      currentWinStreak: ((json['currentWinStreak'] ?? json['winStreak'] ?? 0) as num? ?? 0).toInt(),
+      totalScore: _parseInt(json['totalScore']),
+      gamesPlayed: _parseInt(json['totalGames'] ?? json['gamesPlayed'] ?? json['gamesCount']),
+      gamesWon: _parseInt(json['totalWins'] ?? json['gamesWon'] ?? json['winsCount']),
+      averageScore: _parseInt(json['averageScore']),
+      bestScore: _parseInt(json['bestScore']),
+      currentWinStreak: _parseInt(json['currentWinStreak'] ?? json['winStreak']),
       lastPlayedAt: json['lastPlayedAt']?.toString() ?? json['lastPlayed']?.toString() ?? '',
     );
   }
@@ -58,4 +58,13 @@ class LeaderboardEntry {
         return '#$rank';
     }
   }
+}
+
+int _parseInt(dynamic value) {
+  if (value == null) return 0;
+  if (value is num) return value.toInt();
+  if (value is String) {
+    return double.tryParse(value)?.toInt() ?? int.tryParse(value) ?? 0;
+  }
+  return 0;
 }

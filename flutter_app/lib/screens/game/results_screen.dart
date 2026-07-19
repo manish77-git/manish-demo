@@ -177,8 +177,8 @@ class _ResultsScreenState extends State<ResultsScreen>
         opponentStats = drawingsMap[opponentId] as Map<String, dynamic>?;
       }
 
-      final myScoreVal = drawingsMap[myUid]?['score'] as int? ?? _myScore;
-      final opponentScoreVal = opponentStats?['score'] as int? ?? 0;
+      final myScoreVal = (drawingsMap[myUid]?['score'] as num? ?? _myScore).toInt();
+      final opponentScoreVal = (opponentStats?['score'] as num? ?? 0).toInt();
 
       if (myScoreVal > opponentScoreVal) {
         winnerText = 'Victory! You Won! 🏆';
