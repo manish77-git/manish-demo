@@ -4,8 +4,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
 import '../../providers/theme_provider.dart';
-import '../../providers/progression_provider.dart';
 import '../../services/audio_service.dart';
+import '../../services/prompt_service.dart';
+import '../../widgets/doodle_painter.dart';
 import '../../config/theme.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -67,77 +68,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     Navigator.pushNamed(context, '/lobby', arguments: code);
   }
 
-  void _showDailyRewardModal() {
-    AudioService().playClick();
-    final progression = context.read<ProgressionProvider>();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-          side: const BorderSide(color: AppTheme.borderLight, width: 2.5),
-        ),
-        title: const Row(
-          children: [
-            Icon(LucideIcons.gift, color: AppTheme.accentYellow, size: 28),
-            SizedBox(width: 10),
-            Text('Daily Reward!'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(LucideIcons.sparkles, size: 48, color: AppTheme.accentCoral),
-            const SizedBox(height: 12),
-            const Text(
-              'Claim your daily bonus:',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(LucideIcons.coins, color: AppTheme.accentYellow, size: 20),
-                SizedBox(width: 6),
-                Text('+100 Coins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                SizedBox(width: 16),
-                Icon(LucideIcons.zap, color: AppTheme.primaryLight, size: 20),
-                SizedBox(width: 6),
-                Text('+150 XP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              final claimed = progression.claimDailyReward();
-              Navigator.pop(context);
-              if (claimed) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('🎉 Claimed +100 Coins and +150 XP!')),
-                );
-              }
-            },
-            child: const Text('Claim Reward'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showPracticeConfigDialog() {
     AudioService().playClick();
-    String selectedCategory = 'all';
-    String selectedDifficulty = 'all';
-
-    final List<String> categories = [
-      'all', 'Animals', 'Food', 'Nature', 'Objects', 'Vehicles',
-      'Sports', 'Buildings', 'Fantasy', 'Space', 'Technology',
-    ];
-
-    final List<String> difficulties = ['all', 'easy', 'medium', 'hard'];
+    PromptCategory selectedCategory = PromptCategory.randomFun;
+    PromptDifficulty selectedDifficulty = PromptDifficulty.medium;
 
     final isDark = context.read<ThemeProvider>().isDarkMode;
     final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
@@ -168,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  DropdownButtonFormField<String>(
+                  DropdownButtonFormField<PromptCategory>(
                     dropdownColor: cardBg,
                     value: selectedCategory,
                     decoration: InputDecoration(
@@ -177,10 +111,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor)),
                     ),
                     style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                    items: categories.map((c) {
-                      return DropdownMenuItem<String>(
+                    items: PromptCategory.values.map((c) {
+                      return DropdownMenuItem<PromptCategory>(
                         value: c,
-                        child: Text(c == 'all' ? '🎲 Random Category' : c),
+                        child: Text('${c.emoji} ${c.label}'),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -188,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     },
                   ),
                   const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
+                  DropdownButtonFormField<PromptDifficulty>(
                     dropdownColor: cardBg,
                     value: selectedDifficulty,
                     decoration: InputDecoration(
@@ -197,10 +131,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor)),
                     ),
                     style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                    items: difficulties.map((d) {
-                      return DropdownMenuItem<String>(
+                    items: PromptDifficulty.values.map((d) {
+                      return DropdownMenuItem<PromptDifficulty>(
                         value: d,
-                        child: Text(d == 'all' ? '⚡ Mixed Difficulty' : d.toUpperCase()),
+                        child: Text('${d.emoji} ${d.label}'),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -217,9 +151,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
+                    final prompt = PromptService().getRandomPrompt(
+                      category: selectedCategory,
+                      difficulty: selectedDifficulty,
+                    );
                     Navigator.pushNamed(context, '/drawing', arguments: {
-                      'category': selectedCategory,
-                      'difficulty': selectedDifficulty,
+                      'prompt': prompt.text,
+                      'category': selectedCategory.label,
+                      'difficulty': selectedDifficulty.label,
                       'isMultiplayer': false,
                     });
                   },
@@ -237,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final progression = context.watch<ProgressionProvider>();
+    final socket = context.watch<SocketProvider>();
     final themeProvider = context.watch<ThemeProvider>();
     final isDark = themeProvider.isDarkMode;
 
@@ -250,34 +189,34 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Scaffold(
       body: Stack(
         children: [
-          // Sketchpad background
+          // Handcrafted Doodle & Paper background
           Positioned.fill(
             child: CustomPaint(
-              painter: SketchpadBackgroundPainter(gridColor: textColor, isDark: isDark),
+              painter: DoodlePainter(primaryColor: primaryColor, isDark: isDark),
             ),
           ),
 
           SafeArea(
             child: Column(
               children: [
-                // Top Player Stats Header Bar
-                _buildTopPlayerHeader(auth, progression, isDark, primaryColor, cardBg, borderColor, textColor, textMuted),
+                // Top Navigation Bar
+                _buildTopAppBar(auth, socket, isDark, primaryColor, cardBg, borderColor, textColor, textMuted),
 
-                // Scrollable Dashboard Body
+                // Dashboard Scroll Body
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space16),
+                    padding: const EdgeInsets.all(AppTheme.space24),
                     child: Center(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 900),
+                        constraints: const BoxConstraints(maxWidth: 850),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Mascot Greeting Hero Section
-                            _buildMascotHeroSection(auth, progression, primaryColor, cardBg, borderColor, textColor, textMuted),
+                            // Mascot Hero Banner
+                            _buildMascotHeroSection(auth, primaryColor, cardBg, borderColor, textColor, textMuted),
                             const SizedBox(height: AppTheme.space24),
 
-                            // Action Mode Grid
+                            // Main Game Mode Cards
                             Text(
                               'GAME MODES',
                               style: TextStyle(
@@ -298,12 +237,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                   physics: const NeverScrollableScrollPhysics(),
                                   crossAxisSpacing: AppTheme.space16,
                                   mainAxisSpacing: AppTheme.space16,
-                                  childAspectRatio: isWide ? 1.3 : 2.5,
+                                  childAspectRatio: isWide ? 1.3 : 2.4,
                                   children: [
-                                    // 1. Find 1v1 Duel
                                     _buildModeCard(
-                                      title: 'Find 1v1 Duel',
-                                      subtitle: 'Ranked matchmaking',
+                                      title: '1v1 Duel',
+                                      subtitle: 'Strict 2-player match',
                                       icon: LucideIcons.swords,
                                       color: AppTheme.accentCoral,
                                       borderColor: borderColor,
@@ -313,21 +251,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                         Navigator.pushNamed(context, '/lobby');
                                       },
                                     ),
-
-                                    // 2. Custom Room
                                     _buildModeCard(
                                       title: 'Create Room',
-                                      subtitle: 'Host private duel',
+                                      subtitle: 'Host up to 10 players',
                                       icon: LucideIcons.plusCircle,
                                       color: primaryColor,
                                       borderColor: borderColor,
                                       textColor: textColor,
                                       onTap: _createRoom,
                                     ),
-
-                                    // 3. Practice vs AI
                                     _buildModeCard(
-                                      title: 'Solo Practice',
+                                      title: 'Practice vs AI',
                                       subtitle: 'Draw & get AI score',
                                       icon: LucideIcons.bot,
                                       color: AppTheme.accentCyan,
@@ -341,68 +275,49 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                             const SizedBox(height: AppTheme.space24),
 
-                            // Join Code Section & Daily Quests Card
-                            Row(
-                              children: [
-                                // Join Code Input Card
-                                Expanded(
-                                  flex: 1,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(AppTheme.space16),
-                                    decoration: AppTheme.gameCardDecoration(
-                                      color: cardBg,
-                                      borderColor: borderColor,
-                                      shadowColor: primaryColor,
-                                      radius: AppTheme.radiusLarge,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(LucideIcons.keyRound, size: 18, color: primaryColor),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              'JOIN WITH CODE',
-                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: TextField(
-                                                controller: _roomCodeController,
-                                                textCapitalization: TextCapitalization.characters,
-                                                style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2.0),
-                                                decoration: const InputDecoration(
-                                                  hintText: '4-DIGIT CODE',
-                                                  isDense: true,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            IconButton(
-                                              onPressed: _joinRoom,
-                                              icon: const Icon(LucideIcons.arrowRight),
-                                              style: IconButton.styleFrom(
-                                                backgroundColor: primaryColor,
-                                                foregroundColor: Colors.white,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                            // Join Code Input Card
+                            Container(
+                              padding: const EdgeInsets.all(AppTheme.space16),
+                              decoration: AppTheme.gameCardDecoration(
+                                color: cardBg,
+                                borderColor: borderColor,
+                                shadowColor: primaryColor,
+                                radius: AppTheme.radiusLarge,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(LucideIcons.keyRound, size: 20, color: primaryColor),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _roomCodeController,
+                                      textCapitalization: TextCapitalization.characters,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2.0),
+                                      decoration: const InputDecoration(
+                                        hintText: 'ENTER 4-DIGIT ROOM CODE',
+                                        isDense: true,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 12),
+                                  ElevatedButton(
+                                    onPressed: _joinRoom,
+                                    style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
+                                    child: const Text('Join Room'),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(height: AppTheme.space24),
 
-                            // Bottom Toolbar Navigation Buttons
-                            _buildBottomNavBar(cardBg, borderColor, textColor, primaryColor),
+                            // Navigation Buttons Toolbar
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildNavButton(LucideIcons.user, 'Profile', () => Navigator.pushNamed(context, '/profile'), textColor),
+                                _buildNavButton(LucideIcons.settings, 'Settings', () => Navigator.pushNamed(context, '/settings'), textColor),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -417,9 +332,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildTopPlayerHeader(
+  Widget _buildTopAppBar(
     AuthProvider auth,
-    ProgressionProvider progression,
+    SocketProvider socket,
     bool isDark,
     Color primaryColor,
     Color cardBg,
@@ -435,106 +350,60 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
       child: Row(
         children: [
-          // Avatar & Level Badge
-          InkWell(
-            onTap: () => Navigator.pushNamed(context, '/profile'),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: primaryColor,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: borderColor, width: 2),
-                  ),
-                  child: const Center(
-                    child: Icon(LucideIcons.user, color: Colors.white, size: 22),
-                  ),
+          // Logo & Mascot Name
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: borderColor, width: 2),
                 ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      auth.displayName,
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
-                    ),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppTheme.accentYellow,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: borderColor, width: 1.5),
-                          ),
-                          child: Text(
-                            'LVL ${progression.level}',
-                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.black),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 60,
-                          height: 8,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: progression.levelProgress,
-                              backgroundColor: borderColor.withOpacity(0.15),
-                              color: primaryColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                child: const Center(child: Icon(LucideIcons.paintbrush, color: Colors.white, size: 20)),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'DrawBattle',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: textColor),
+              ),
+            ],
           ),
           const Spacer(),
 
-          // Coin Balance
+          // Real Online Players Indicator
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: AppTheme.accentYellow.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-              border: Border.all(color: borderColor, width: 2),
+              color: AppTheme.accentLight.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: borderColor, width: 1.5),
             ),
             child: Row(
               children: [
-                const Icon(LucideIcons.coins, color: AppTheme.accentYellow, size: 18),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(color: AppTheme.accentLight, shape: BoxShape.circle),
+                ),
                 const SizedBox(width: 6),
                 Text(
-                  '${progression.coins}',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: textColor),
+                  '${socket.isConnected ? 1 : 0} Online',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textColor),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
-          // Daily Reward Button
-          IconButton(
-            onPressed: _showDailyRewardModal,
-            icon: Icon(
-              LucideIcons.gift,
-              color: progression.dailyRewardClaimed ? textMuted : AppTheme.accentCoral,
-            ),
-            tooltip: 'Daily Reward',
-          ),
-
-          // Theme Mode Toggle
+          // Theme Toggle Button
           IconButton(
             onPressed: () {
               AudioService().playClick();
               context.read<ThemeProvider>().toggleTheme();
             },
             icon: Icon(isDark ? LucideIcons.sun : LucideIcons.moon, color: textColor),
-            tooltip: 'Toggle Theme',
           ),
         ],
       ),
@@ -543,7 +412,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildMascotHeroSection(
     AuthProvider auth,
-    ProgressionProvider progression,
     Color primaryColor,
     Color cardBg,
     Color borderColor,
@@ -560,7 +428,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
       child: Row(
         children: [
-          // Bouncing Mascot Graphic
           AnimatedBuilder(
             animation: _mascotAnim,
             builder: (context, child) {
@@ -570,29 +437,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               );
             },
             child: Container(
-              width: 80,
-              height: 80,
+              width: 76,
+              height: 76,
               decoration: BoxDecoration(
                 color: primaryColor,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: borderColor, width: 2.5),
               ),
-              child: const Icon(LucideIcons.paintbrush, size: 40, color: Colors.white),
+              child: const Icon(LucideIcons.sparkles, size: 38, color: Colors.white),
             ),
           ),
           const SizedBox(width: 20),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Welcome Back, ${auth.displayName}! 🎨',
+                  'Welcome, ${auth.displayName}! 🎨',
                   style: Theme.of(context).textTheme.headlineLarge,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Sketch fast, battle friends in real-time, and let AI rank your masterpieces!',
+                  'Sketch fast, duel friends in real-time, and test your creativity!',
                   style: TextStyle(color: textMuted, fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ],
@@ -646,39 +512,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildBottomNavBar(Color cardBg, Color borderColor, Color textColor, Color primaryColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space16, vertical: AppTheme.space12),
-      decoration: AppTheme.gameCardDecoration(
-        color: cardBg,
-        borderColor: borderColor,
-        shadowColor: primaryColor,
-        radius: AppTheme.radiusLarge,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildNavButton(LucideIcons.trophy, 'Leaderboard', () => Navigator.pushNamed(context, '/leaderboard'), textColor),
-          _buildNavButton(LucideIcons.shoppingBag, 'Shop', () => Navigator.pushNamed(context, '/shop'), textColor),
-          _buildNavButton(LucideIcons.user, 'Profile', () => Navigator.pushNamed(context, '/profile'), textColor),
-          _buildNavButton(LucideIcons.settings, 'Settings', () => Navigator.pushNamed(context, '/settings'), textColor),
-        ],
-      ),
-    );
-  }
-
   Widget _buildNavButton(IconData icon, String label, VoidCallback onTap, Color color) {
     return InkWell(
       onTap: () {
         AudioService().playClick();
         onTap();
       },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: color)),
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
         ],
       ),
     );

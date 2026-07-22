@@ -22,9 +22,7 @@ import 'screens/home/home_screen.dart';
 import 'screens/game/lobby_screen.dart';
 import 'screens/game/drawing_screen.dart';
 import 'screens/game/results_screen.dart';
-import 'screens/leaderboard/leaderboard_screen.dart';
 import 'screens/profile/profile_screen.dart';
-import 'screens/profile/shop_screen.dart';
 import 'screens/settings/settings_screen.dart';
 
 void main() async {
@@ -69,9 +67,7 @@ class DrawBattleApp extends StatelessWidget {
               '/lobby': (context) => const LobbyScreen(),
               '/drawing': (context) => const DrawingScreen(),
               '/results': (context) => const ResultsScreen(),
-              '/leaderboard': (context) => const LeaderboardScreen(),
               '/profile': (context) => const ProfileScreen(),
-              '/shop': (context) => const ShopScreen(),
               '/settings': (context) => const SettingsScreen(),
             },
           );
