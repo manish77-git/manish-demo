@@ -4,9 +4,17 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../config/theme.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/drawing_provider.dart';
+import '../../services/audio_service.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final AudioService _audio = AudioService();
 
   @override
   Widget build(BuildContext context) {
@@ -22,8 +30,11 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Settings'),
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft),
-          onPressed: () => Navigator.pop(context),
+          icon: const Icon(LucideIcons.arrowLeft),
+          onPressed: () {
+            _audio.playClick();
+            Navigator.pop(context);
+          },
         ),
       ),
       body: Center(
@@ -32,6 +43,57 @@ class SettingsScreen extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           child: ListView(
             children: [
+              // Audio Section
+              _buildSectionHeader('Audio & Sound Effects', LucideIcons.volume2, context),
+              const SizedBox(height: 12),
+              Card(
+                color: tileColor,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                        value: !_audio.isMuted,
+                        title: const Text('Sound Effects', style: TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: const Text('UI clicks, drawing sounds & victory fanfares'),
+                        secondary: Icon(_audio.isMuted ? LucideIcons.volumeX : LucideIcons.volume2),
+                        onChanged: (val) {
+                          setState(() => _audio.isMuted = !val);
+                          _audio.playClick();
+                        },
+                      ),
+                      Divider(height: 16, color: dividerColor),
+                      Row(
+                        children: [
+                          const Icon(LucideIcons.sliders, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('SFX Volume', style: TextStyle(fontWeight: FontWeight.w600)),
+                                Slider(
+                                  value: _audio.sfxVolume,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  divisions: 10,
+                                  label: '${(_audio.sfxVolume * 100).round()}%',
+                                  onChanged: (val) {
+                                    setState(() => _audio.sfxVolume = val);
+                                    _audio.playClick();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
               // Appearance Section
               _buildSectionHeader('Appearance', LucideIcons.palette, context),
               const SizedBox(height: 12),
@@ -43,29 +105,38 @@ class SettingsScreen extends StatelessWidget {
                       title: 'Follow System',
                       mode: AppThemeMode.system,
                       activeMode: themeProvider.themeMode,
-                      onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                      onChanged: (mode) {
+                        _audio.playClick();
+                        themeProvider.setThemeMode(mode!);
+                      },
                     ),
                     Divider(height: 1, color: dividerColor),
                     _buildThemeRadioTile(
                       title: 'Light Mode',
                       mode: AppThemeMode.light,
                       activeMode: themeProvider.themeMode,
-                      onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                      onChanged: (mode) {
+                        _audio.playClick();
+                        themeProvider.setThemeMode(mode!);
+                      },
                     ),
                     Divider(height: 1, color: dividerColor),
                     _buildThemeRadioTile(
                       title: 'Dark Mode',
                       mode: AppThemeMode.dark,
                       activeMode: themeProvider.themeMode,
-                      onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                      onChanged: (mode) {
+                        _audio.playClick();
+                        themeProvider.setThemeMode(mode!);
+                      },
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
 
               // Drawing Settings Section
-              _buildSectionHeader('Drawing Assistant & Canvas', LucideIcons.brush, context),
+              _buildSectionHeader('Drawing Canvas Assists', LucideIcons.brush, context),
               const SizedBox(height: 12),
               Card(
                 color: tileColor,
@@ -73,64 +144,30 @@ class SettingsScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      // Smoothing Slider
-                      Row(
-                        children: [
-                          Icon(LucideIcons.activity, size: 20),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Line Smoothing', style: TextStyle(fontWeight: FontWeight.w600)),
-                                Text('Reduces hand jitter while drawing', style: Theme.of(context).textTheme.bodySmall),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      Slider(
-                        value: 5.0, // Mock configuration placeholder (or load from drawing settings)
-                        min: 1.0,
-                        max: 10.0,
-                        divisions: 9,
-                        label: '5.0',
+                      SwitchListTile(
+                        value: drawingProvider.showGrid,
+                        title: const Text('Show Grid Overlay', style: TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Display guide lines on drawing canvas'),
+                        secondary: const Icon(LucideIcons.grid),
                         onChanged: (val) {
-                          // Update smoothing settings
+                          _audio.playClick();
+                          drawingProvider.toggleGrid();
                         },
                       ),
-                      Divider(height: 24, color: dividerColor),
-                      // Grid Snapping
+                      Divider(height: 16, color: dividerColor),
                       SwitchListTile(
-                        value: false,
-                        title: const Text('Snap to Grid', style: TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: const Text('Align strokes and lines to grid overlay'),
-                        secondary: Icon(LucideIcons.grid),
+                        value: drawingProvider.snapGrid,
+                        title: const Text('Grid Snapping', style: TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Snap points to grid alignments'),
+                        secondary: const Icon(LucideIcons.alignCenter),
                         onChanged: (val) {
-                          // Toggle grid snap
+                          _audio.playClick();
+                          drawingProvider.toggleSnapGrid();
                         },
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 32),
-
-              // Actions Section
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  foregroundColor: Colors.redAccent,
-                  side: const BorderSide(color: Colors.redAccent, width: 1.5),
-                ),
-                icon: Icon(LucideIcons.trash2, size: 20),
-                label: const Text('Reset Preferences'),
-                onPressed: () {
-                  themeProvider.setThemeMode(AppThemeMode.system);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Preferences reset to defaults')),
-                  );
-                },
               ),
             ],
           ),

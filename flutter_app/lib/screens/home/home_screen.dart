@@ -4,6 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/progression_provider.dart';
+import '../../services/audio_service.dart';
 import '../../config/theme.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -13,10 +15,28 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final TextEditingController _roomCodeController = TextEditingController();
+  late AnimationController _mascotAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _mascotAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _roomCodeController.dispose();
+    _mascotAnim.dispose();
+    super.dispose();
+  }
 
   void _createRoom() {
+    AudioService().playClick();
     final auth = context.read<AuthProvider>();
     final socket = context.read<SocketProvider>();
 
@@ -32,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _joinRoom() {
+    AudioService().playClick();
     final code = _roomCodeController.text.trim();
     if (code.isEmpty) return;
 
@@ -46,14 +67,74 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.pushNamed(context, '/lobby', arguments: code);
   }
 
+  void _showDailyRewardModal() {
+    AudioService().playClick();
+    final progression = context.read<ProgressionProvider>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+          side: const BorderSide(color: AppTheme.borderLight, width: 2.5),
+        ),
+        title: const Row(
+          children: [
+            Icon(LucideIcons.gift, color: AppTheme.accentYellow, size: 28),
+            SizedBox(width: 10),
+            Text('Daily Reward!'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(LucideIcons.sparkles, size: 48, color: AppTheme.accentCoral),
+            const SizedBox(height: 12),
+            const Text(
+              'Claim your daily bonus:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(LucideIcons.coins, color: AppTheme.accentYellow, size: 20),
+                SizedBox(width: 6),
+                Text('+100 Coins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                SizedBox(width: 16),
+                Icon(LucideIcons.zap, color: AppTheme.primaryLight, size: 20),
+                SizedBox(width: 6),
+                Text('+150 XP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              final claimed = progression.claimDailyReward();
+              Navigator.pop(context);
+              if (claimed) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('🎉 Claimed +100 Coins and +150 XP!')),
+                );
+              }
+            },
+            child: const Text('Claim Reward'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showPracticeConfigDialog() {
+    AudioService().playClick();
     String selectedCategory = 'all';
     String selectedDifficulty = 'all';
 
     final List<String> categories = [
       'all', 'Animals', 'Food', 'Nature', 'Objects', 'Vehicles',
       'Sports', 'Buildings', 'Fantasy', 'Space', 'Technology',
-      'Jobs', 'Holidays', 'Emotions', 'Mythology', 'Abstract Concepts'
     ];
 
     final List<String> difficulties = ['all', 'easy', 'medium', 'hard'];
@@ -76,7 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 side: BorderSide(color: borderColor, width: 2.5),
               ),
               title: Text(
-                'SELECT RULES',
+                'PRACTICE RULES',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -99,15 +180,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     items: categories.map((c) {
                       return DropdownMenuItem<String>(
                         value: c,
-                        child: Text(c == 'all' ? 'Mixed Categories' : c),
+                        child: Text(c == 'all' ? '🎲 Random Category' : c),
                       );
                     }).toList(),
                     onChanged: (val) {
-                      if (val != null) {
-                        setModalState(() {
-                          selectedCategory = val;
-                        });
-                      }
+                      if (val != null) setModalState(() => selectedCategory = val);
                     },
                   ),
                   const SizedBox(height: 16),
@@ -123,15 +200,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     items: difficulties.map((d) {
                       return DropdownMenuItem<String>(
                         value: d,
-                        child: Text(d == 'all' ? 'Mixed Difficulties' : d.toUpperCase()),
+                        child: Text(d == 'all' ? '⚡ Mixed Difficulty' : d.toUpperCase()),
                       );
                     }).toList(),
                     onChanged: (val) {
-                      if (val != null) {
-                        setModalState(() {
-                          selectedDifficulty = val;
-                        });
-                      }
+                      if (val != null) setModalState(() => selectedDifficulty = val);
                     },
                   ),
                 ],
@@ -139,23 +212,19 @@ class _HomeScreenState extends State<HomeScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text('Cancel', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                  child: Text('Cancel', style: TextStyle(color: textColor)),
                 ),
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    Navigator.pushNamed(
-                      context,
-                      '/drawing',
-                      arguments: {
-                        'isMultiplayer': false,
-                        'category': selectedCategory,
-                        'difficulty': selectedDifficulty,
-                      },
-                    );
+                    Navigator.pushNamed(context, '/drawing', arguments: {
+                      'category': selectedCategory,
+                      'difficulty': selectedDifficulty,
+                      'isMultiplayer': false,
+                    });
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
-                  child: const Text('Start Practice', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: const Text('Start Solo'),
                 ),
               ],
             );
@@ -168,324 +237,179 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final isDark = context.watch<ThemeProvider>().isDarkMode;
+    final progression = context.watch<ProgressionProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
+    final isDark = themeProvider.isDarkMode;
 
     final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
     final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
     final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
     final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
+    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
 
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
       body: Stack(
         children: [
-          // Sketchpad grid backdrop
+          // Sketchpad background
           Positioned.fill(
             child: CustomPaint(
-              painter: SketchpadBackgroundPainter(
-                gridColor: textColor,
-                isDark: isDark,
-              ),
-            ),
-          ),
-
-          // Floating background bubbles
-          Positioned(
-            top: -50,
-            right: 40,
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: primaryColor.withOpacity(0.06),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 100,
-            left: -40,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.accentYellow.withOpacity(0.06),
-              ),
+              painter: SketchpadBackgroundPainter(gridColor: textColor, isDark: isDark),
             ),
           ),
 
           SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.space24,
-                  vertical: AppTheme.space32,
-                ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 820),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Header Navigation Bar
-                      Row(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: AppTheme.gameCardDecoration(
-                              color: primaryColor,
-                              borderColor: borderColor,
-                              shadowColor: borderColor,
-                              radius: AppTheme.radiusSmall,
-                            ),
-                            child: const Icon(LucideIcons.brush, size: 24, color: Colors.white),
-                          ),
-                          const SizedBox(width: AppTheme.space12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'DrawBattle',
-                                  style: Theme.of(context).textTheme.headlineLarge,
-                                ),
-                                Text(
-                                  'Artist: ${auth.displayName}',
-                                  style: TextStyle(fontSize: 13, color: textMuted, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pushNamed(context, '/settings'),
-                            icon: Icon(LucideIcons.settings, size: 18, color: textColor),
-                            style: IconButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                                side: BorderSide(color: borderColor, width: 2.5),
-                              ),
-                              padding: const EdgeInsets.all(12),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppTheme.space48),
+            child: Column(
+              children: [
+                // Top Player Stats Header Bar
+                _buildTopPlayerHeader(auth, progression, isDark, primaryColor, cardBg, borderColor, textColor, textMuted),
 
-                      // Game Hero Callout
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: primaryColor.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: borderColor, width: 2),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.accentLight,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'FREE DOODLE AI GAME',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: textColor,
-                                    letterSpacing: 1.0,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppTheme.space16),
-                          RichText(
-                            text: TextSpan(
-                              style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                              children: [
-                                const TextSpan(text: 'Sketch fast. '),
-                                const TextSpan(text: 'Duel friends.\n'),
-                                TextSpan(
-                                  text: 'Let AI judge.',
-                                  style: TextStyle(color: primaryColor),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppTheme.space12),
-                          Text(
-                            'The free multiplayer drawing duel. No downloads, no accounts. Create a room instantly, sketch with friends, and let AI evaluate the winner.',
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color: textMuted,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppTheme.space48),
-
-                      // Action Grid
-                      GridView.count(
-                        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 2 : 1,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        childAspectRatio: MediaQuery.of(context).size.width > 600 ? 2.5 : 3.0,
-                        crossAxisSpacing: AppTheme.space16,
-                        mainAxisSpacing: AppTheme.space16,
-                        children: [
-                          _buildMenuCard(
-                            title: 'Practice Solo',
-                            subtitle: 'Draw at your own pace with AI feedback',
-                            icon: LucideIcons.palette,
-                            color: primaryColor,
-                            statusText: 'AI FEEDBACK',
-                            statusColor: AppTheme.accentLight,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            shadowColor: primaryColor,
-                            textMuted: textMuted,
-                            onTap: _showPracticeConfigDialog,
-                          ),
-                          _buildMenuCard(
-                            title: 'Create Room',
-                            subtitle: 'Host a drawing lobby with codes',
-                            icon: LucideIcons.plus,
-                            color: AppTheme.accentCyan,
-                            statusText: 'MULTIPLAYER',
-                            statusColor: AppTheme.accentCyan,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            shadowColor: AppTheme.accentCyan,
-                            textMuted: textMuted,
-                            onTap: _createRoom,
-                          ),
-                          _buildMenuCard(
-                            title: 'Daily Challenge',
-                            subtitle: 'Compete globally on today\'s prompt',
-                            icon: LucideIcons.calendar,
-                            color: AppTheme.accentCoral,
-                            statusText: 'DAILY COMING SOON',
-                            statusColor: AppTheme.accentCoral,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            shadowColor: AppTheme.accentCoral,
-                            textMuted: textMuted,
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Daily challenges are coming soon!')),
-                              );
-                            },
-                          ),
-                          _buildMenuCard(
-                            title: 'Leaderboard',
-                            subtitle: 'See top ranks and draw streaks',
-                            icon: LucideIcons.trophy,
-                            color: AppTheme.accentYellow,
-                            statusText: 'GLOBAL RANKS',
-                            statusColor: AppTheme.accentYellow,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            shadowColor: AppTheme.accentYellow,
-                            textMuted: textMuted,
-                            onTap: () => Navigator.pushNamed(context, '/leaderboard'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppTheme.space24),
-
-                      // Join Room Box
-                      Container(
-                        padding: const EdgeInsets.all(AppTheme.space24),
-                        decoration: AppTheme.gameCardDecoration(
-                          color: cardBg,
-                          borderColor: borderColor,
-                          shadowColor: primaryColor,
-                        ),
+                // Scrollable Dashboard Body
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space16),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 900),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Row(
-                              children: [
-                                Icon(LucideIcons.users, size: 18, color: primaryColor),
-                                const SizedBox(width: AppTheme.space8),
-                                Text(
-                                  'Join with Code',
-                                  style: Theme.of(context).textTheme.headlineMedium,
-                                ),
-                              ],
+                            // Mascot Greeting Hero Section
+                            _buildMascotHeroSection(auth, progression, primaryColor, cardBg, borderColor, textColor, textMuted),
+                            const SizedBox(height: AppTheme.space24),
+
+                            // Action Mode Grid
+                            Text(
+                              'GAME MODES',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: textMuted,
+                                letterSpacing: 1.5,
+                              ),
                             ),
                             const SizedBox(height: AppTheme.space12),
+
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isWide = constraints.maxWidth > 600;
+                                return GridView.count(
+                                  crossAxisCount: isWide ? 3 : 1,
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  crossAxisSpacing: AppTheme.space16,
+                                  mainAxisSpacing: AppTheme.space16,
+                                  childAspectRatio: isWide ? 1.3 : 2.5,
+                                  children: [
+                                    // 1. Find 1v1 Duel
+                                    _buildModeCard(
+                                      title: 'Find 1v1 Duel',
+                                      subtitle: 'Ranked matchmaking',
+                                      icon: LucideIcons.swords,
+                                      color: AppTheme.accentCoral,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      onTap: () {
+                                        AudioService().playClick();
+                                        Navigator.pushNamed(context, '/lobby');
+                                      },
+                                    ),
+
+                                    // 2. Custom Room
+                                    _buildModeCard(
+                                      title: 'Create Room',
+                                      subtitle: 'Host private duel',
+                                      icon: LucideIcons.plusCircle,
+                                      color: primaryColor,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      onTap: _createRoom,
+                                    ),
+
+                                    // 3. Practice vs AI
+                                    _buildModeCard(
+                                      title: 'Solo Practice',
+                                      subtitle: 'Draw & get AI score',
+                                      icon: LucideIcons.bot,
+                                      color: AppTheme.accentCyan,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      onTap: _showPracticeConfigDialog,
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: AppTheme.space24),
+
+                            // Join Code Section & Daily Quests Card
                             Row(
                               children: [
+                                // Join Code Input Card
                                 Expanded(
-                                  child: TextField(
-                                    controller: _roomCodeController,
-                                    decoration: const InputDecoration(
-                                      hintText: 'Enter room code',
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  flex: 1,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(AppTheme.space16),
+                                    decoration: AppTheme.gameCardDecoration(
+                                      color: cardBg,
+                                      borderColor: borderColor,
+                                      shadowColor: primaryColor,
+                                      radius: AppTheme.radiusLarge,
                                     ),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                    onSubmitted: (_) => _joinRoom(),
-                                  ),
-                                ),
-                                const SizedBox(width: AppTheme.space12),
-                                Container(
-                                  decoration: AppTheme.gameCardDecoration(
-                                    color: primaryColor,
-                                    borderColor: borderColor,
-                                    shadowColor: borderColor,
-                                    radius: AppTheme.radiusSmall,
-                                  ),
-                                  child: ElevatedButton(
-                                    onPressed: _joinRoom,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                                      ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(LucideIcons.keyRound, size: 18, color: primaryColor),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'JOIN WITH CODE',
+                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextField(
+                                                controller: _roomCodeController,
+                                                textCapitalization: TextCapitalization.characters,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2.0),
+                                                decoration: const InputDecoration(
+                                                  hintText: '4-DIGIT CODE',
+                                                  isDense: true,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            IconButton(
+                                              onPressed: _joinRoom,
+                                              icon: const Icon(LucideIcons.arrowRight),
+                                              style: IconButton.styleFrom(
+                                                backgroundColor: primaryColor,
+                                                foregroundColor: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
-                                    child: const Icon(LucideIcons.arrowRight, color: Colors.white, size: 18),
                                   ),
                                 ),
                               ],
                             ),
+                            const SizedBox(height: AppTheme.space24),
+
+                            // Bottom Toolbar Navigation Buttons
+                            _buildBottomNavBar(cardBg, borderColor, textColor, primaryColor),
                           ],
                         ),
                       ),
-
-                      // Sign out button
-                      const SizedBox(height: AppTheme.space48),
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: () {
-                            context.read<AuthProvider>().signOut();
-                            Navigator.pushReplacementNamed(context, '/login');
-                          },
-                          icon: Icon(LucideIcons.logOut, size: 16, color: textMuted),
-                          label: Text(
-                            'Sign out',
-                            style: TextStyle(color: textMuted, fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -493,81 +417,269 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMenuCard({
+  Widget _buildTopPlayerHeader(
+    AuthProvider auth,
+    ProgressionProvider progression,
+    bool isDark,
+    Color primaryColor,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color textMuted,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        border: Border(bottom: BorderSide(color: borderColor, width: 2.5)),
+      ),
+      child: Row(
+        children: [
+          // Avatar & Level Badge
+          InkWell(
+            onTap: () => Navigator.pushNamed(context, '/profile'),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: primaryColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: borderColor, width: 2),
+                  ),
+                  child: const Center(
+                    child: Icon(LucideIcons.user, color: Colors.white, size: 22),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      auth.displayName,
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentYellow,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: borderColor, width: 1.5),
+                          ),
+                          child: Text(
+                            'LVL ${progression.level}',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.black),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 60,
+                          height: 8,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: progression.levelProgress,
+                              backgroundColor: borderColor.withOpacity(0.15),
+                              color: primaryColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+
+          // Coin Balance
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.accentYellow.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(color: borderColor, width: 2),
+            ),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.coins, color: AppTheme.accentYellow, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  '${progression.coins}',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: textColor),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Daily Reward Button
+          IconButton(
+            onPressed: _showDailyRewardModal,
+            icon: Icon(
+              LucideIcons.gift,
+              color: progression.dailyRewardClaimed ? textMuted : AppTheme.accentCoral,
+            ),
+            tooltip: 'Daily Reward',
+          ),
+
+          // Theme Mode Toggle
+          IconButton(
+            onPressed: () {
+              AudioService().playClick();
+              context.read<ThemeProvider>().toggleTheme();
+            },
+            icon: Icon(isDark ? LucideIcons.sun : LucideIcons.moon, color: textColor),
+            tooltip: 'Toggle Theme',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMascotHeroSection(
+    AuthProvider auth,
+    ProgressionProvider progression,
+    Color primaryColor,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color textMuted,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.space24),
+      decoration: AppTheme.gameCardDecoration(
+        color: cardBg,
+        borderColor: borderColor,
+        shadowColor: primaryColor,
+        radius: AppTheme.radiusLarge,
+      ),
+      child: Row(
+        children: [
+          // Bouncing Mascot Graphic
+          AnimatedBuilder(
+            animation: _mascotAnim,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(0, -6 * _mascotAnim.value),
+                child: child,
+              );
+            },
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: primaryColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: borderColor, width: 2.5),
+              ),
+              child: const Icon(LucideIcons.paintbrush, size: 40, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 20),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Welcome Back, ${auth.displayName}! 🎨',
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Sketch fast, battle friends in real-time, and let AI rank your masterpieces!',
+                  style: TextStyle(color: textMuted, fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeCard({
     required String title,
     required String subtitle,
     required IconData icon,
     required Color color,
-    required String statusText,
-    required Color statusColor,
-    required Color cardBg,
     required Color borderColor,
-    required Color shadowColor,
-    required Color textMuted,
+    required Color textColor,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
+    return Container(
+      decoration: AppTheme.gameCardDecoration(
+        color: color.withOpacity(0.12),
+        borderColor: borderColor,
+        shadowColor: color,
+        radius: AppTheme.radiusLarge,
+      ),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        child: Container(
+        child: Padding(
           padding: const EdgeInsets.all(AppTheme.space16),
-          decoration: AppTheme.gameCardDecoration(
-            color: cardBg,
-            borderColor: borderColor,
-            shadowColor: shadowColor,
-          ),
-          child: Row(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Icon container
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: borderColor, width: 2),
-                ),
-                child: Icon(icon, size: 20, color: color),
+              Icon(icon, size: 32, color: color),
+              const Spacer(),
+              Text(
+                title,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor),
               ),
-              const SizedBox(width: AppTheme.space16),
-
-              // Text info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(fontSize: 12, color: textMuted, fontWeight: FontWeight.bold),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textColor.withOpacity(0.7)),
               ),
-
-              Icon(LucideIcons.chevronRight, size: 16, color: textMuted),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(Color cardBg, Color borderColor, Color textColor, Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space16, vertical: AppTheme.space12),
+      decoration: AppTheme.gameCardDecoration(
+        color: cardBg,
+        borderColor: borderColor,
+        shadowColor: primaryColor,
+        radius: AppTheme.radiusLarge,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildNavButton(LucideIcons.trophy, 'Leaderboard', () => Navigator.pushNamed(context, '/leaderboard'), textColor),
+          _buildNavButton(LucideIcons.shoppingBag, 'Shop', () => Navigator.pushNamed(context, '/shop'), textColor),
+          _buildNavButton(LucideIcons.user, 'Profile', () => Navigator.pushNamed(context, '/profile'), textColor),
+          _buildNavButton(LucideIcons.settings, 'Settings', () => Navigator.pushNamed(context, '/settings'), textColor),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavButton(IconData icon, String label, VoidCallback onTap, Color color) {
+    return InkWell(
+      onTap: () {
+        AudioService().playClick();
+        onTap();
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: color)),
+        ],
       ),
     );
   }

@@ -4,31 +4,32 @@ import 'package:provider/provider.dart';
 // Config
 import 'config/theme.dart';
 
+// Services
+import 'services/audio_service.dart';
+
 // Providers
 import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/drawing_provider.dart';
 import 'providers/socket_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/progression_provider.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
-
 import 'screens/home/home_screen.dart';
 import 'screens/game/lobby_screen.dart';
 import 'screens/game/drawing_screen.dart';
 import 'screens/game/results_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
+import 'screens/profile/profile_screen.dart';
+import 'screens/profile/shop_screen.dart';
 import 'screens/settings/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // TODO: Initialize Firebase
-  // await Firebase.initializeApp(
-  //   options: DefaultFirebaseOptions.currentPlatform,
-  // );
+  AudioService().init();
 
   runApp(const DrawBattleApp());
 }
@@ -43,6 +44,7 @@ class DrawBattleApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => ProgressionProvider()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => DrawingProvider()),
         ChangeNotifierProvider(create: (_) {
@@ -68,6 +70,8 @@ class DrawBattleApp extends StatelessWidget {
               '/drawing': (context) => const DrawingScreen(),
               '/results': (context) => const ResultsScreen(),
               '/leaderboard': (context) => const LeaderboardScreen(),
+              '/profile': (context) => const ProfileScreen(),
+              '/shop': (context) => const ShopScreen(),
               '/settings': (context) => const SettingsScreen(),
             },
           );

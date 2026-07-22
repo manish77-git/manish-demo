@@ -57,6 +57,14 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
+  void toggleTheme() {
+    if (isDarkMode) {
+      setThemeMode(AppThemeMode.light);
+    } else {
+      setThemeMode(AppThemeMode.dark);
+    }
+  }
+
   bool get isDarkMode {
     if (_themeMode == AppThemeMode.system) {
       final window = WidgetsBinding.instance.platformDispatcher;
