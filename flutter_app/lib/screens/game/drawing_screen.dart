@@ -345,11 +345,35 @@ class _DrawingScreenState extends State<DrawingScreen> {
     }
   }
 
+  Timer? _evaluatingMsgTimer;
+  int _evaluatingMsgIndex = 0;
+  static const List<String> _evaluatingMessages = [
+    'Analyzing your drawing...',
+    'Comparing with the prompt...',
+    'Evaluating shape accuracy & details...',
+    'Generating feedback...',
+  ];
+
+  void _startEvaluatingTimer() {
+    _evaluatingMsgIndex = 0;
+    _evaluatingMsgTimer?.cancel();
+    _evaluatingMsgTimer = Timer.periodic(const Duration(milliseconds: 2200), (timer) {
+      if (mounted && _isEvaluating) {
+        setState(() {
+          _evaluatingMsgIndex = (_evaluatingMsgIndex + 1) % _evaluatingMessages.length;
+        });
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
   Future<void> _handleSubmit() async {
     final drawingProvider = context.read<DrawingProvider>();
     final auth = context.read<AuthProvider>();
 
     setState(() => _isEvaluating = true);
+    _startEvaluatingTimer();
 
     try {
       final bytes = await drawingProvider.exportToPng(const Size(500, 500));
@@ -367,16 +391,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
           drawingBytes: bytes,
         );
 
-        // Listen for final results emitted by server
-        final resultFuture = Completer<Map<String, dynamic>>();
-        socketProvider.onLiveMetrics = null; // Clean up intermediate listener
-
-        // The socket server emits 'game:results'
-        final io = socketProvider;
-        // In this implementation, drawing Service submitDrawing API call returns evaluation results.
-        // If all players submitted, final scores are computed.
-        // We will query the endpoint /api/drawings/:gameId to get results, or use response JSON directly.
         if (mounted) {
+          _evaluatingMsgTimer?.cancel();
           Navigator.pushReplacementNamed(
             context,
             '/results',
@@ -407,6 +423,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         );
 
         if (mounted) {
+          _evaluatingMsgTimer?.cancel();
           Navigator.pushReplacementNamed(
             context,
             '/results',
@@ -431,22 +448,32 @@ class _DrawingScreenState extends State<DrawingScreen> {
       }
     } catch (e) {
       debugPrint('Error during AI drawing evaluation: $e');
+      _evaluatingMsgTimer?.cancel();
       if (mounted) {
+        setState(() => _isEvaluating = false);
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Evaluation Error'),
-            content: Text(e.toString().replaceAll('Exception: ', '')),
+            title: const Text('AI Evaluation Unavailable'),
+            content: const Text('The AI evaluation service is temporarily unavailable. Please try again in a moment.'),
             actions: [
               TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _handleSubmit();
+                },
+                child: const Text('Try Again'),
+              ),
+              TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Dismiss'),
+                child: const Text('Back'),
               ),
             ],
           ),
         );
       }
     } finally {
+      _evaluatingMsgTimer?.cancel();
       if (mounted) setState(() => _isEvaluating = false);
     }
   }
@@ -558,12 +585,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         ),
                         const SizedBox(height: AppTheme.space16),
                         Text(
-                          'Evaluating drawing...',
+                          _evaluatingMessages[_evaluatingMsgIndex],
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                         const SizedBox(height: AppTheme.space4),
                         Text(
-                          'AI is analyzing your creativity',
+                          'Evaluating prompt: "$_currentPrompt"',
                           style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                       ],

@@ -14,9 +14,9 @@ class DrawingService {
   /// Check the initialization status of the AI model on the backend.
   Future<Map<String, dynamic>> checkAiStatus() async {
     final uri = Uri.parse('$baseUrl/api/drawings/ai-status');
-    final response = await http.get(uri);
+    final response = await http.get(uri).timeout(const Duration(seconds: 10));
     final data = jsonDecode(response.body);
-    if (data['success'] != true) throw Exception('Failed to fetch AI status');
+    if (data['success'] != true) throw Exception(data['error']?['message'] ?? 'Failed to fetch AI status');
     return data['data'] as Map<String, dynamic>;
   }
 
@@ -37,11 +37,14 @@ class DrawingService {
         contentType: MediaType('image', 'png'),
       ));
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(const Duration(seconds: 40));
     final response = await http.Response.fromStream(streamedResponse);
 
     final data = jsonDecode(response.body);
-    if (!data['success']) throw Exception(data['error']['message']);
+    if (response.statusCode != 200 || data['success'] != true) {
+      final msg = data['error']?['message'] ?? 'The AI evaluation service is temporarily unavailable. Please try again in a moment.';
+      throw Exception(msg);
+    }
     return DrawingResult.fromJson(data['data']);
   }
 
@@ -62,11 +65,14 @@ class DrawingService {
         contentType: MediaType('image', 'png'),
       ));
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(const Duration(seconds: 40));
     final response = await http.Response.fromStream(streamedResponse);
 
     final data = jsonDecode(response.body);
-    if (!data['success']) throw Exception(data['error']['message']);
+    if (response.statusCode != 200 || data['success'] != true) {
+      final msg = data['error']?['message'] ?? 'The AI evaluation service is temporarily unavailable. Please try again in a moment.';
+      throw Exception(msg);
+    }
     return DrawingResult.fromJson(data['data']);
   }
 
@@ -75,7 +81,7 @@ class DrawingService {
     final response = await http.get(
       Uri.parse('$baseUrl/api/drawings/$gameId'),
       headers: {'Content-Type': 'application/json'},
-    );
+    ).timeout(const Duration(seconds: 15));
 
     final data = jsonDecode(response.body);
     if (!data['success']) throw Exception(data['error']['message']);
@@ -97,7 +103,7 @@ class DrawingService {
         contentType: MediaType('image', 'png'),
       ));
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
     final response = await http.Response.fromStream(streamedResponse);
     final data = jsonDecode(response.body);
     if (!data['success']) throw Exception('Failed to analyze sketch');
