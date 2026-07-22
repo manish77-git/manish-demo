@@ -12,6 +12,8 @@ enum DrawingToolType {
   spray,       // Spray Paint
   crayon,
   watercolor,
+  oilBrush,    // Thick Oil Impasto
+  chalk,       // Dusty Chalk Grain
   neon,
   pixel,
   calligraphy, // Calligraphy Pen

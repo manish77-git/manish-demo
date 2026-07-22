@@ -42,7 +42,7 @@ class LobbyManager {
         category: 'all',
         difficulty: 'all',
         duration: 80,
-        maxPlayers: 8
+        maxPlayers: 10
       },
       status: 'lobby' // 'lobby' | 'playing'
     };

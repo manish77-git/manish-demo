@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/progression_provider.dart';
+import '../../services/audio_service.dart';
 import '../../config/theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -45,12 +47,13 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _handleJoin() async {
     if (!_formKey.currentState!.validate()) return;
 
+    AudioService().playClick();
+    final name = _usernameController.text.trim();
     final auth = context.read<AuthProvider>();
-    final success = await auth.signInWithUsername(
-      _usernameController.text.trim(),
-    );
+    final success = await auth.signInWithUsername(name);
 
     if (success && mounted) {
+      await context.read<ProgressionProvider>().loadProfileForUsername(name);
       Navigator.pushReplacementNamed(context, '/home');
     }
   }

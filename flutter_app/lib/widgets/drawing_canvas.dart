@@ -187,6 +187,33 @@ class _CanvasPainter extends CustomPainter {
             ..isAntiAlias = true;
           _drawStrokePath(canvas, stroke, softPaint);
         }
+      case DrawingToolType.oilBrush:
+        // Thick impasto oil paint: layered heavy stroke with bristle shadow
+        final oilShadow = basePaint
+          ..strokeWidth = stroke.strokeWidth * 1.3
+          ..color = Colors.black.withOpacity(0.12);
+        _drawStrokePath(canvas, stroke, oilShadow);
+        final oilPaint = basePaint
+          ..strokeWidth = stroke.strokeWidth * 1.1
+          ..color = stroke.color.withOpacity(stroke.opacity * 0.9);
+        _drawStrokePath(canvas, stroke, oilPaint);
+        break;
+
+      case DrawingToolType.chalk:
+        // Chalk: dusty grain particles along path
+        final random = math.Random(42);
+        final chalkPaint = Paint()
+          ..color = stroke.color.withOpacity(stroke.opacity * 0.25)
+          ..style = PaintingStyle.fill;
+        for (final p in stroke.points) {
+          for (int i = 0; i < 7; i++) {
+            final offset = Offset(
+              (random.nextDouble() - 0.5) * stroke.strokeWidth * 1.2,
+              (random.nextDouble() - 0.5) * stroke.strokeWidth * 1.2,
+            );
+            canvas.drawCircle(p + offset, random.nextDouble() * 1.2 + 0.3, chalkPaint);
+          }
+        }
         break;
 
       case DrawingToolType.watercolor:
