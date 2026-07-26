@@ -1,0 +1,164 @@
+{
+  "users": {
+    "token_usr_07123e1f48": {
+      "uid": "token_usr_07123e1f48",
+      "email": "token_us@example.com",
+      "username": "lol",
+      "displayName": "lol",
+      "avatar": "🎨",
+      "photoUrl": null,
+      "totalScore": 0,
+      "gamesPlayed": 0,
+      "gamesWon": 0,
+      "gamesLost": 0,
+      "winRate": 0,
+      "averageScore": 0,
+      "highestScore": 0,
+      "totalDrawings": 0,
+      "favouriteGameMode": "single_player",
+      "friends": [],
+      "friendRequests": {
+        "incoming": [],
+        "outgoing": []
+      },
+      "matchHistory": [],
+      "achievements": [
+        {
+          "id": "first_draw",
+          "title": "First Canvas",
+          "description": "Complete your first drawing challenge",
+          "emoji": "🎨",
+          "target": 1,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "first_win",
+          "title": "First Victory",
+          "description": "Win your first match or high score challenge",
+          "emoji": "🏆",
+          "target": 1,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "sharp_eye",
+          "title": "Sharp Artist",
+          "description": "Score 85+ points on a drawing challenge",
+          "emoji": "🎯",
+          "target": 85,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "century_club",
+          "title": "High Scorer",
+          "description": "Score 200+ total points in a single challenge",
+          "emoji": "💯",
+          "target": 200,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "artist_5",
+          "title": "5 Games Played",
+          "description": "Complete 5 drawing challenges",
+          "emoji": "🖌️",
+          "target": 5,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "artist_25",
+          "title": "Drawing Veteran",
+          "description": "Complete 25 drawing challenges",
+          "emoji": "⭐",
+          "target": 25,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "artist_100",
+          "title": "Drawing Master",
+          "description": "Complete 100 drawing challenges",
+          "emoji": "💎",
+          "target": 100,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "wins_5",
+          "title": "5 Wins",
+          "description": "Win 5 matches or challenges",
+          "emoji": "🔥",
+          "target": 5,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "wins_25",
+          "title": "25 Wins",
+          "description": "Win 25 matches or challenges",
+          "emoji": "👑",
+          "target": 25,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "social_butterfly",
+          "title": "Social Butterfly",
+          "description": "Add at least 1 friend to your list",
+          "emoji": "👥",
+          "target": 1,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "speed_demon",
+          "title": "Doodle Speedster",
+          "description": "Create 20 total drawings",
+          "emoji": "⚡",
+          "target": 20,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        },
+        {
+          "id": "perfectionist",
+          "title": "Perfectionist",
+          "description": "Maintain an average score of 75+",
+          "emoji": "🌟",
+          "target": 75,
+          "current": 0,
+          "unlocked": false,
+          "unlockedAt": null
+        }
+      ],
+      "settings": {
+        "soundEnabled": true,
+        "volume": 0.8,
+        "theme": "system",
+        "notifications": true
+      },
+      "isOnline": false,
+      "createdAt": "2026-07-26T06:09:58.057Z",
+      "lastOnline": "2026-07-26T06:09:58.058Z",
+      "id": "token_usr_07123e1f48"
+    },
+    "usr_07123e1f4823": {
+      "id": "usr_07123e1f4823",
+      "isOnline": true,
+      "lastOnline": "2026-07-26T06:09:58.404Z"
+    }
+  }
+}

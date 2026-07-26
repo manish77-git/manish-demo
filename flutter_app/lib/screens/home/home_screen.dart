@@ -3,9 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
-import '../../providers/theme_provider.dart';
-import '../../services/audio_service.dart';
 import '../../services/prompt_service.dart';
+import '../../services/audio_service.dart';
 import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../widgets/doodle_painter.dart';
@@ -18,102 +17,58 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final TextEditingController _roomCodeController = TextEditingController();
-  late AnimationController _entranceController;
-  late List<Animation<double>> _staggerAnimations;
+  late AnimationController _staggerController;
+  final List<Animation<double>> _staggerAnimations = [];
 
   @override
   void initState() {
     super.initState();
-    _entranceController = AnimationController(
+    _staggerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
 
-    // Create staggered animations for each element
-    _staggerAnimations = List.generate(6, (i) {
-      final start = i * 0.12;
+    for (int i = 0; i < 5; i++) {
+      final start = i * 0.15;
       final end = (start + 0.4).clamp(0.0, 1.0);
-      return CurvedAnimation(
-        parent: _entranceController,
-        curve: Interval(start, end, curve: Curves.easeOutCubic),
+      _staggerAnimations.add(
+        CurvedAnimation(
+          parent: _staggerController,
+          curve: Interval(start, end, curve: Curves.easeOutCubic),
+        ),
       );
-    });
+    }
 
-    _entranceController.forward();
+    _staggerController.forward();
 
+    // Register user on socket when home loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = context.read<AuthProvider>();
       final socket = context.read<SocketProvider>();
-      if (auth.uid.isNotEmpty) {
-        socket.registerUserOnline(auth.uid);
+      if (auth.isAuthenticated) {
+        socket.registerUser(auth.uid, auth.username, auth.displayName);
       }
-
-      // Listen for game invites from friends
-      socket.onFriendInviteReceived = (fromUid, hostName, roomCode) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('🎮 $hostName invited you to room $roomCode!'),
-            action: SnackBarAction(
-              label: 'JOIN',
-              onPressed: () {
-                socket.joinRoom(roomCode: roomCode, uid: auth.uid, displayName: auth.displayName);
-                Navigator.pushNamed(context, '/lobby', arguments: roomCode);
-              },
-            ),
-            duration: const Duration(seconds: 8),
-          ),
-        );
-      };
     });
   }
 
   @override
   void dispose() {
     _roomCodeController.dispose();
-    _entranceController.dispose();
+    _staggerController.dispose();
     super.dispose();
-  }
-
-  void _createRoom() {
-    AudioService().playClick();
-    final auth = context.read<AuthProvider>();
-    final socket = context.read<SocketProvider>();
-
-    void onUpdate() {
-      if (socket.roomCode != null && socket.roomCode!.isNotEmpty) {
-        socket.removeListener(onUpdate);
-        Navigator.pushNamed(context, '/lobby', arguments: socket.roomCode);
-      }
-    }
-
-    socket.addListener(onUpdate);
-    socket.createRoom(uid: auth.uid, displayName: auth.displayName);
-  }
-
-  void _joinRoom() {
-    AudioService().playClick();
-    final code = _roomCodeController.text.trim();
-    if (code.isEmpty) return;
-
-    final auth = context.read<AuthProvider>();
-    final socket = context.read<SocketProvider>();
-
-    socket.joinRoom(
-      roomCode: code,
-      uid: auth.uid,
-      displayName: auth.displayName,
-    );
-    Navigator.pushNamed(context, '/lobby', arguments: code);
   }
 
   void _startPractice() {
     AudioService().playClick();
     PromptCategory selectedCategory = PromptCategory.randomFun;
     PromptDifficulty selectedDifficulty = PromptDifficulty.medium;
+    int selectedRounds = 5; // 3, 5, 10, 15, -1 for Endless
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final roundOptions = [3, 5, 10, 15, -1];
+    String roundsLabel(int r) => r == -1 ? 'Endless ♾️' : '$r Rounds';
 
     showModalBottomSheet(
       context: context,
@@ -142,10 +97,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: AppTheme.space20),
-                  Text('Quick Solo Game', style: Theme.of(ctx).textTheme.headlineLarge),
+                  Text('Quick Solo Challenge', style: Theme.of(ctx).textTheme.headlineLarge),
                   const SizedBox(height: AppTheme.space4),
                   Text(
-                    'Draw solo and get AI feedback',
+                    'Draw solo, choose rounds, and record your high scores!',
                     style: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
                   ),
                   const SizedBox(height: AppTheme.space24),
@@ -175,6 +130,39 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                               fontSize: 13,
                               color: isSelected ? AppColors.coral : null,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: AppTheme.space20),
+
+                  // Number of Rounds Selector
+                  Text('Number of Rounds', style: Theme.of(ctx).textTheme.headlineSmall),
+                  const SizedBox(height: AppTheme.space8),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: roundOptions.map((r) {
+                      final isSelected = selectedRounds == r;
+                      return GestureDetector(
+                        onTap: () => setModalState(() => selectedRounds = r),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppColors.sunny.withValues(alpha: 0.2) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                            border: Border.all(
+                              color: isSelected ? AppColors.sunny : (isDark ? AppColors.borderDark : AppColors.borderLight),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Text(
+                            roundsLabel(r),
+                            style: TextStyle(
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                              fontSize: 13,
+                              color: isSelected ? AppColors.sunny : null,
                             ),
                           ),
                         ),
@@ -236,7 +224,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         Navigator.pushNamed(context, '/drawing', arguments: {
                           'prompt': prompt.text,
                           'category': selectedCategory.label,
-                          'difficulty': selectedDifficulty.label,
+                          'difficulty': selectedDifficulty.label.toLowerCase(),
+                          'isSinglePlayerChallenge': true,
+                          'currentRound': 1,
+                          'totalRounds': selectedRounds,
+                          'cumulativeScore': 0,
                           'isMultiplayer': false,
                         });
                       },
@@ -250,14 +242,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(LucideIcons.paintbrush, size: 18),
+                          Icon(LucideIcons.play, color: Colors.white, size: 20),
                           SizedBox(width: 8),
-                          Text('Start Drawing'),
+                          Text(
+                            'START DRAWING',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppTheme.space16),
                 ],
               ),
             );
@@ -265,6 +264,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       },
     );
+  }
+
+  void _createRoom() {
+    AudioService().playClick();
+    final auth = context.read<AuthProvider>();
+    final socket = context.read<SocketProvider>();
+
+    if (!socket.isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connecting to server... Please try again in a moment.')),
+      );
+      return;
+    }
+
+    socket.createRoom(
+      hostId: auth.uid,
+      hostName: auth.displayName,
+      hostAvatar: auth.avatar,
+    );
+
+    Navigator.pushNamed(context, '/lobby');
+  }
+
+  void _joinRoom() {
+    AudioService().playClick();
+    final code = _roomCodeController.text.trim().toUpperCase();
+    if (code.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid 6-character room code.')),
+      );
+      return;
+    }
+
+    final auth = context.read<AuthProvider>();
+    final socket = context.read<SocketProvider>();
+
+    socket.joinRoom(
+      roomCode: code,
+      userId: auth.uid,
+      userName: auth.displayName,
+      userAvatar: auth.avatar,
+    );
+
+    Navigator.pushNamed(context, '/lobby');
   }
 
   @override
@@ -349,53 +392,93 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildTopBar(AuthProvider auth, SocketProvider socket, bool isDark, Color primary, Color textMuted) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space20, vertical: AppTheme.space12),
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space12),
+      decoration: BoxDecoration(
+        color: (isDark ? AppColors.cardDark : AppColors.cardLight).withValues(alpha: 0.9),
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+          ),
+        ),
+      ),
       child: Row(
         children: [
-          // Logo with connection indicator
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.coral, AppColors.rose],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          // Logo & Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.coral.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(LucideIcons.paintbrush, color: AppColors.coral, size: 22),
               ),
-              borderRadius: BorderRadius.circular(10),
+              const SizedBox(width: 10),
+              Text(
+                'DrawBattle',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
+          ),
+
+          const Spacer(),
+
+          // Socket Status Indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: socket.isConnected
+                  ? AppColors.mint.withValues(alpha: 0.15)
+                  : AppColors.coral.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Stack(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Center(child: Icon(LucideIcons.paintbrush, color: Colors.white, size: 18)),
-                Positioned(
-                  right: 2, top: 2,
-                  child: Container(
-                    width: 8, height: 8,
-                    decoration: BoxDecoration(
-                      color: socket.isConnected ? AppColors.mint : Colors.orange,
-                      shape: BoxShape.circle,
-                    ),
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    color: socket.isConnected ? AppColors.mint : AppColors.coral,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  socket.isConnected ? 'ONLINE' : 'OFFLINE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: socket.isConnected ? AppColors.mint : AppColors.coral,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          Text(
-            'DrawBattle',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 19, color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
-          ),
-          const Spacer(),
+          const SizedBox(width: 12),
 
-          // Theme toggle
-          IconButton(
-            onPressed: () {
+          // Profile Avatar Button
+          GestureDetector(
+            onTap: () {
               AudioService().playClick();
-              context.read<ThemeProvider>().toggleTheme();
+              Navigator.pushNamed(context, '/profile');
             },
-            icon: Icon(
-              isDark ? LucideIcons.sun : LucideIcons.moon,
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-              size: 20,
+            child: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+                border: Border.all(color: primary.withValues(alpha: 0.3), width: 1.5),
+              ),
+              child: Center(
+                child: Text(auth.avatar, style: const TextStyle(fontSize: 20)),
+              ),
             ),
           ),
         ],
@@ -441,7 +524,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildPlayButton(bool isDark) {
     return GestureDetector(
-      onTap: _startPractice,
+      onTap: () {
+        AudioService().playClick();
+        Navigator.pushNamed(context, '/single_player');
+      },
       child: Container(
         height: 64,
         decoration: AppTheme.gradientButton(),
@@ -451,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Icon(LucideIcons.play, color: Colors.white, size: 24),
             SizedBox(width: 12),
             Text(
-              'PLAY QUICK GAME',
+              'PLAY SINGLE PLAYER CHALLENGE',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -488,14 +574,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onTap: _createRoom,
           ),
           _GameModeData(
-            title: 'Single Player Challenge',
-            subtitle: 'Beat your high score',
-            icon: LucideIcons.target,
+            title: 'Quick Solo Setup',
+            subtitle: 'Customize rounds & category',
+            icon: LucideIcons.sliders,
             color: AppColors.teal,
-            onTap: () {
-              AudioService().playClick();
-              Navigator.pushNamed(context, '/single_player');
-            },
+            onTap: _startPractice,
           ),
         ];
 
@@ -525,105 +608,93 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildModeCard(_GameModeData data, bool isDark, {bool horizontal = false}) {
-    if (horizontal) {
-      return GestureDetector(
-        onTap: data.onTap,
-        child: Container(
-          padding: const EdgeInsets.all(AppTheme.space16),
-          decoration: AppTheme.accentCard(context, data.color),
-          child: Row(
+    final card = Container(
+      padding: const EdgeInsets.all(AppTheme.space20),
+      decoration: AppTheme.accentCard(context, data.color),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: data.color,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            ),
+            child: Icon(data.icon, color: Colors.white, size: 22),
+          ),
+          const SizedBox(height: AppTheme.space16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: data.color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(data.icon, color: data.color, size: 22),
+              Text(
+                data.title,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(data.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight)),
-                    Text(data.subtitle, style: TextStyle(fontSize: 12, color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight)),
-                  ],
+              const SizedBox(height: 2),
+              Text(
+                data.subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
                 ),
               ),
-              Icon(LucideIcons.chevronRight, color: data.color, size: 20),
             ],
           ),
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onTap: data.onTap,
-      child: Container(
-        padding: const EdgeInsets.all(AppTheme.space16),
-        decoration: AppTheme.accentCard(context, data.color),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                color: data.color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(data.icon, color: data.color, size: 22),
-            ),
-            const SizedBox(height: 14),
-            Text(data.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight)),
-            const SizedBox(height: 2),
-            Text(data.subtitle, style: TextStyle(fontSize: 12, color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight)),
-          ],
-        ),
+        ],
       ),
+    );
+
+    return InkWell(
+      onTap: data.onTap,
+      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      child: card,
     );
   }
 
   Widget _buildJoinRoomCard(bool isDark, Color primary) {
     return Container(
-      padding: const EdgeInsets.all(AppTheme.space16),
+      padding: const EdgeInsets.all(AppTheme.space20),
       decoration: AppTheme.gameCard(context),
       child: Row(
         children: [
-          Icon(LucideIcons.keyRound, size: 20, color: primary),
-          const SizedBox(width: 12),
           Expanded(
             child: TextField(
               controller: _roomCodeController,
               textCapitalization: TextCapitalization.characters,
-              style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 3.0, fontSize: 16),
-              decoration: const InputDecoration(
+              maxLength: 6,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 4,
+                fontSize: 18,
+                color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              ),
+              decoration: InputDecoration(
+                counterText: '',
                 hintText: 'ROOM CODE',
-                isDense: true,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                fillColor: Colors.transparent,
-                filled: false,
+                hintStyle: TextStyle(
+                  letterSpacing: 2,
+                  fontSize: 14,
+                  color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                ),
+                prefixIcon: const Icon(LucideIcons.keyRound, size: 20),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
             ),
           ),
           const SizedBox(width: 12),
-          Container(
-            decoration: AppTheme.gradientButton(
-              startColor: AppColors.lavender,
-              endColor: AppColors.skyBlue,
-              radius: AppTheme.radiusSmall,
-            ),
+          SizedBox(
+            height: 48,
             child: ElevatedButton(
               onPressed: _joinRoom,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                ),
               ),
-              child: const Text('Join'),
+              child: const Text('JOIN', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
             ),
           ),
         ],
@@ -632,37 +703,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildNavRow(bool isDark) {
-    final color = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _buildNavItem(LucideIcons.user, 'Profile', () => Navigator.pushNamed(context, '/profile'), color),
-        _buildNavItem(LucideIcons.users, 'Friends', () => Navigator.pushNamed(context, '/friends'), color),
-        _buildNavItem(LucideIcons.settings, 'Settings', () => Navigator.pushNamed(context, '/settings'), color),
-      ],
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, VoidCallback onTap, Color color) {
-    return GestureDetector(
-      onTap: () {
-        AudioService().playClick();
-        onTap();
-      },
-      child: Column(
-        children: [
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: color, size: 22),
+        Expanded(
+          child: _NavButton(
+            label: 'Profile',
+            icon: LucideIcons.user,
+            color: AppColors.teal,
+            onTap: () => Navigator.pushNamed(context, '/profile'),
           ),
-          const SizedBox(height: 6),
-          Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: color)),
-        ],
-      ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _NavButton(
+            label: 'Friends',
+            icon: LucideIcons.users,
+            color: AppColors.rose,
+            onTap: () => Navigator.pushNamed(context, '/friends'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _NavButton(
+            label: 'Settings',
+            icon: LucideIcons.settings,
+            color: AppColors.lavender,
+            onTap: () => Navigator.pushNamed(context, '/settings'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -674,11 +743,56 @@ class _GameModeData {
   final Color color;
   final VoidCallback onTap;
 
-  const _GameModeData({
+  _GameModeData({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.color,
     required this.onTap,
   });
+}
+
+class _NavButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _NavButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      height: 50,
+      decoration: AppTheme.gameCard(context),
+      child: InkWell(
+        onTap: () {
+          AudioService().playClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

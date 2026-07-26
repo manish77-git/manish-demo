@@ -51,6 +51,7 @@ class _ResultsScreenState extends State<ResultsScreen>
   int _currentRound = 1;
   int _totalRounds = 5;
   int _cumulativeScore = 0;
+  bool _scoreSaved = false;
 
   @override
   void initState() {
@@ -105,12 +106,13 @@ class _ResultsScreenState extends State<ResultsScreen>
         _totalRounds = args['totalRounds'] as int? ?? 5;
         _cumulativeScore = args['cumulativeScore'] as int? ?? _myScore;
 
-        if (_isSinglePlayerChallenge && (_currentRound >= _totalRounds && _totalRounds != -1)) {
+        if (!_scoreSaved && !_isMultiplayer) {
+          _scoreSaved = true;
           final auth = context.read<AuthProvider>();
-          final avgScore = (_cumulativeScore / _totalRounds).round();
+          final avgScore = (_currentRound > 0) ? (_cumulativeScore / _currentRound).round() : _myScore;
           auth.saveSinglePlayerScore(
             totalScore: _cumulativeScore,
-            roundsCount: _totalRounds,
+            roundsCount: _currentRound,
             totalRounds: _totalRounds,
             averageScore: avgScore,
           );
