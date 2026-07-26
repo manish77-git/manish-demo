@@ -1,0 +1,14 @@
+{
+  "name": "draw-battle",
+  "version": "2.0.0",
+  "description": "DrawBattle production multiplayer server for Railway deployment",
+  "main": "backend/src/index.js",
+  "scripts": {
+    "start": "node backend/src/index.js",
+    "build": "cd backend && npm install",
+    "dev": "cd backend && npm run dev"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
