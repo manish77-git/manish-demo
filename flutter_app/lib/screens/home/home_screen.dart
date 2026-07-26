@@ -8,7 +8,6 @@ import '../../services/audio_service.dart';
 import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../widgets/doodle_painter.dart';
-import '../../widgets/mascot_painter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final auth = context.read<AuthProvider>();
       final socket = context.read<SocketProvider>();
       if (auth.isAuthenticated) {
-        socket.registerUser(auth.uid, auth.username, auth.displayName);
+        socket.registerUserOnline(auth.uid);
       }
     });
   }
@@ -279,9 +278,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     socket.createRoom(
-      hostId: auth.uid,
-      hostName: auth.displayName,
-      hostAvatar: auth.avatar,
+      uid: auth.uid,
+      displayName: auth.displayName,
     );
 
     Navigator.pushNamed(context, '/lobby');
@@ -302,9 +300,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     socket.joinRoom(
       roomCode: code,
-      userId: auth.uid,
-      userName: auth.displayName,
-      userAvatar: auth.avatar,
+      uid: auth.uid,
+      displayName: auth.displayName,
     );
 
     Navigator.pushNamed(context, '/lobby');

@@ -1,10 +1,33 @@
 services:
+  # Backend API Service
   - type: web
     name: draw-battle-backend
     env: node
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /api/health
     envVars:
       - key: PORT
         value: 3000
+      - key: NODE_ENV
+        value: production
+
+  # Static Web Client (Flutter Web)
+  - type: web
+    name: draw-battle-web
+    env: static
+    rootDir: flutter_app
+    buildCommand: flutter/bin/flutter build web --release
+    staticPublishPath: flutter_app/build/web
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*.js
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate

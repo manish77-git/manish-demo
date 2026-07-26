@@ -7,21 +7,38 @@
       "displayName": "lol",
       "avatar": "🎨",
       "photoUrl": null,
-      "totalScore": 0,
-      "gamesPlayed": 0,
+      "totalScore": 530,
+      "gamesPlayed": 2,
       "gamesWon": 0,
-      "gamesLost": 0,
+      "gamesLost": 2,
       "winRate": 0,
-      "averageScore": 0,
-      "highestScore": 0,
-      "totalDrawings": 0,
+      "averageScore": 265,
+      "highestScore": 265,
+      "totalDrawings": 10,
       "favouriteGameMode": "single_player",
       "friends": [],
       "friendRequests": {
         "incoming": [],
         "outgoing": []
       },
-      "matchHistory": [],
+      "matchHistory": [
+        {
+          "date": "2026-07-26T06:18:29.861Z",
+          "mode": "single_player",
+          "totalScore": 265,
+          "roundsCount": 5,
+          "totalRounds": 5,
+          "averageScore": 53
+        },
+        {
+          "date": "2026-07-26T06:18:22.551Z",
+          "mode": "single_player",
+          "totalScore": 265,
+          "roundsCount": 5,
+          "totalRounds": 5,
+          "averageScore": 53
+        }
+      ],
       "achievements": [
         {
           "id": "first_draw",
@@ -29,9 +46,9 @@
           "description": "Complete your first drawing challenge",
           "emoji": "🎨",
           "target": 1,
-          "current": 0,
-          "unlocked": false,
-          "unlockedAt": null
+          "current": 1,
+          "unlocked": true,
+          "unlockedAt": "2026-07-26T06:18:22.551Z"
         },
         {
           "id": "first_win",
@@ -49,9 +66,9 @@
           "description": "Score 85+ points on a drawing challenge",
           "emoji": "🎯",
           "target": 85,
-          "current": 0,
-          "unlocked": false,
-          "unlockedAt": null
+          "current": 85,
+          "unlocked": true,
+          "unlockedAt": "2026-07-26T06:18:22.551Z"
         },
         {
           "id": "century_club",
@@ -59,9 +76,9 @@
           "description": "Score 200+ total points in a single challenge",
           "emoji": "💯",
           "target": 200,
-          "current": 0,
-          "unlocked": false,
-          "unlockedAt": null
+          "current": 200,
+          "unlocked": true,
+          "unlockedAt": "2026-07-26T06:18:22.551Z"
         },
         {
           "id": "artist_5",
@@ -69,7 +86,7 @@
           "description": "Complete 5 drawing challenges",
           "emoji": "🖌️",
           "target": 5,
-          "current": 0,
+          "current": 2,
           "unlocked": false,
           "unlockedAt": null
         },
@@ -79,7 +96,7 @@
           "description": "Complete 25 drawing challenges",
           "emoji": "⭐",
           "target": 25,
-          "current": 0,
+          "current": 2,
           "unlocked": false,
           "unlockedAt": null
         },
@@ -89,7 +106,7 @@
           "description": "Complete 100 drawing challenges",
           "emoji": "💎",
           "target": 100,
-          "current": 0,
+          "current": 2,
           "unlocked": false,
           "unlockedAt": null
         },
@@ -129,7 +146,7 @@
           "description": "Create 20 total drawings",
           "emoji": "⚡",
           "target": 20,
-          "current": 0,
+          "current": 10,
           "unlocked": false,
           "unlockedAt": null
         },
@@ -139,9 +156,9 @@
           "description": "Maintain an average score of 75+",
           "emoji": "🌟",
           "target": 75,
-          "current": 0,
-          "unlocked": false,
-          "unlockedAt": null
+          "current": 75,
+          "unlocked": true,
+          "unlockedAt": "2026-07-26T06:18:22.551Z"
         }
       ],
       "settings": {
@@ -150,15 +167,16 @@
         "theme": "system",
         "notifications": true
       },
-      "isOnline": false,
+      "isOnline": true,
       "createdAt": "2026-07-26T06:09:58.057Z",
-      "lastOnline": "2026-07-26T06:09:58.058Z",
+      "lastOnline": "2026-07-26T06:19:31.738Z",
       "id": "token_usr_07123e1f48"
     },
     "usr_07123e1f4823": {
       "id": "usr_07123e1f4823",
       "isOnline": true,
-      "lastOnline": "2026-07-26T06:09:58.404Z"
+      "lastOnline": "2026-07-26T06:19:34.120Z"
     }
-  }
+  },
+  "friend_requests": {}
 }
