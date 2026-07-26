@@ -1,15 +1,69 @@
 import { getFirestore } from '../config/firebase.js';
 import logger from '../utils/logger.js';
 
+// ─── Core Achievement Definitions ────────────────────────────────
+
+export const ALL_ACHIEVEMENTS = [
+  { id: 'first_draw', title: 'First Canvas', description: 'Complete your first drawing challenge', emoji: '🎨', target: 1, metric: 'totalDrawings' },
+  { id: 'first_win', title: 'First Victory', description: 'Win your first match or high score challenge', emoji: '🏆', target: 1, metric: 'gamesWon' },
+  { id: 'sharp_eye', title: 'Sharp Artist', description: 'Score 85+ points on a drawing challenge', emoji: '🎯', target: 85, metric: 'highestScore' },
+  { id: 'century_club', title: 'High Scorer', description: 'Score 200+ total points in a single challenge', emoji: '💯', target: 200, metric: 'highestScore' },
+  { id: 'artist_5', title: '5 Games Played', description: 'Complete 5 drawing challenges', emoji: '🖌️', target: 5, metric: 'gamesPlayed' },
+  { id: 'artist_25', title: 'Drawing Veteran', description: 'Complete 25 drawing challenges', emoji: '⭐', target: 25, metric: 'gamesPlayed' },
+  { id: 'artist_100', title: 'Drawing Master', description: 'Complete 100 drawing challenges', emoji: '💎', target: 100, metric: 'gamesPlayed' },
+  { id: 'wins_5', title: '5 Wins', description: 'Win 5 matches or challenges', emoji: '🔥', target: 5, metric: 'gamesWon' },
+  { id: 'wins_25', title: '25 Wins', description: 'Win 25 matches or challenges', emoji: '👑', target: 25, metric: 'gamesWon' },
+  { id: 'social_butterfly', title: 'Social Butterfly', description: 'Add at least 1 friend to your list', emoji: '👥', target: 1, metric: 'friendsCount' },
+  { id: 'speed_demon', title: 'Doodle Speedster', description: 'Create 20 total drawings', emoji: '⚡', target: 20, metric: 'totalDrawings' },
+  { id: 'perfectionist', title: 'Perfectionist', description: 'Maintain an average score of 75+', emoji: '🌟', target: 75, metric: 'averageScore' },
+];
+
 /**
- * Auth controller — handles user profile creation, update, username check,
- * stats persistence, and match history.
+ * Evaluate and calculate achievement progress for a user object.
  */
+export function evaluateAchievements(user) {
+  const existingMap = {};
+  if (Array.isArray(user.achievements)) {
+    user.achievements.forEach((a) => {
+      if (a && a.id) existingMap[a.id] = a;
+    });
+  }
+
+  const friendsCount = (user.friends || []).length;
+
+  return ALL_ACHIEVEMENTS.map((ach) => {
+    let current = 0;
+    if (ach.metric === 'friendsCount') {
+      current = friendsCount;
+    } else {
+      current = user[ach.metric] || 0;
+    }
+
+    const wasUnlocked = existingMap[ach.id]?.unlocked === true;
+    const isUnlocked = wasUnlocked || current >= ach.target;
+    const unlockedAt = wasUnlocked
+      ? existingMap[ach.id].unlockedAt
+      : isUnlocked
+      ? new Date().toISOString()
+      : null;
+
+    return {
+      id: ach.id,
+      title: ach.title,
+      description: ach.description,
+      emoji: ach.emoji,
+      target: ach.target,
+      current: Math.min(current, ach.target),
+      unlocked: isUnlocked,
+      unlockedAt,
+    };
+  });
+}
 
 // ─── Default User Schema ─────────────────────────────────────────
 
 function buildDefaultUser(uid, email, displayName, username, photoUrl) {
-  return {
+  const user = {
     uid,
     email: email || `${uid}@drawbattle.app`,
     username: (username || displayName || `user_${uid.substring(0, 6)}`).toLowerCase(),
@@ -38,6 +92,9 @@ function buildDefaultUser(uid, email, displayName, username, photoUrl) {
     // History
     matchHistory: [],
 
+    // Achievements
+    achievements: [],
+
     // Settings
     settings: {
       soundEnabled: true,
@@ -51,6 +108,9 @@ function buildDefaultUser(uid, email, displayName, username, photoUrl) {
     createdAt: new Date().toISOString(),
     lastOnline: new Date().toISOString(),
   };
+
+  user.achievements = evaluateAchievements(user);
+  return user;
 }
 
 // ─── Check Username Availability ──────────────────────────────────
@@ -108,6 +168,10 @@ export async function createProfile(req, res, next) {
       if (avatar) updates.avatar = avatar;
       if (settings) updates.settings = { ...(existing.settings || {}), ...settings };
 
+      // Re-evaluate achievements
+      const mergedUser = { ...existing, ...updates };
+      updates.achievements = evaluateAchievements(mergedUser);
+
       await userRef.update(updates);
       const updated = (await userRef.get()).data();
 
@@ -120,6 +184,7 @@ export async function createProfile(req, res, next) {
     const newUser = buildDefaultUser(uid, email, nameToUse, username, photoUrl);
     if (avatar) newUser.avatar = avatar;
     if (settings) newUser.settings = { ...newUser.settings, ...settings };
+    newUser.achievements = evaluateAchievements(newUser);
 
     await userRef.set(newUser);
     logger.info(`New user profile created: @${newUser.username} (${newUser.displayName})`);
@@ -138,7 +203,8 @@ export async function createProfile(req, res, next) {
 export async function getProfile(req, res, next) {
   try {
     const db = getFirestore();
-    const userDoc = await db.collection('users').doc(req.user.uid).get();
+    const userRef = db.collection('users').doc(req.user.uid);
+    const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
       return res.status(404).json({
@@ -147,9 +213,18 @@ export async function getProfile(req, res, next) {
       });
     }
 
+    const data = userDoc.data();
+
+    // Ensure achievements are fresh
+    const updatedAchievements = evaluateAchievements(data);
+    if (JSON.stringify(updatedAchievements) !== JSON.stringify(data.achievements)) {
+      await userRef.update({ achievements: updatedAchievements });
+      data.achievements = updatedAchievements;
+    }
+
     res.json({
       success: true,
-      data: { user: userDoc.data() },
+      data: { user: data },
     });
   } catch (error) {
     next(error);
@@ -172,6 +247,7 @@ export async function updateProfile(req, res, next) {
       });
     }
 
+    const existing = userDoc.data();
     const updates = {};
     if (displayName && displayName.trim().length >= 2) {
       updates.displayName = displayName.trim();
@@ -180,16 +256,11 @@ export async function updateProfile(req, res, next) {
       updates.avatar = avatar;
     }
     if (settings) {
-      const existing = userDoc.data();
       updates.settings = { ...(existing.settings || {}), ...settings };
     }
 
-    if (Object.keys(updates).length === 0) {
-      return res.json({
-        success: true,
-        data: { user: userDoc.data() },
-      });
-    }
+    const mergedUser = { ...existing, ...updates };
+    updates.achievements = evaluateAchievements(mergedUser);
 
     await userRef.update(updates);
     const updated = (await userRef.get()).data();
@@ -236,6 +307,7 @@ export async function getPublicProfile(req, res, next) {
           highestScore: data.highestScore || 0,
           totalDrawings: data.totalDrawings || 0,
           friendsCount: (data.friends || []).length,
+          achievements: data.achievements || [],
           isOnline: data.isOnline || false,
           lastOnline: data.lastOnline,
         },
@@ -281,6 +353,20 @@ export async function saveSinglePlayerHighScore(req, res, next) {
 
     const matchHistory = [historyEntry, ...(u.matchHistory || [])].slice(0, 50);
 
+    const mergedUser = {
+      ...u,
+      highestScore: newHigh,
+      gamesPlayed: newGamesPlayed,
+      gamesWon: newGamesWon,
+      gamesLost: newGamesLost,
+      winRate: newWinRate,
+      totalScore: newTotalScore,
+      averageScore: newAvgScore,
+      totalDrawings: (u.totalDrawings || 0) + (rounds || 1),
+    };
+
+    const updatedAchievements = evaluateAchievements(mergedUser);
+
     const updates = {
       highestScore: newHigh,
       gamesPlayed: newGamesPlayed,
@@ -290,7 +376,8 @@ export async function saveSinglePlayerHighScore(req, res, next) {
       totalScore: newTotalScore,
       averageScore: newAvgScore,
       matchHistory,
-      totalDrawings: (u.totalDrawings || 0) + (rounds || 1),
+      totalDrawings: mergedUser.totalDrawings,
+      achievements: updatedAchievements,
     };
 
     await userRef.update(updates);
@@ -305,6 +392,7 @@ export async function saveSinglePlayerHighScore(req, res, next) {
         gamesLost: newGamesLost,
         winRate: newWinRate,
         averageScore: newAvgScore,
+        achievements: updatedAchievements,
       },
     });
   } catch (error) {
@@ -346,10 +434,26 @@ export async function recordMatchResult(req, res, next) {
     const matchHistory = [historyEntry, ...(u.matchHistory || [])].slice(0, 50);
 
     // Track favourite game mode
-    const modes = matchHistory.map(m => m.mode);
+    const modes = matchHistory.map((m) => m.mode);
     const modeCounts = {};
-    modes.forEach(m => { modeCounts[m] = (modeCounts[m] || 0) + 1; });
+    modes.forEach((m) => {
+      modeCounts[m] = (modeCounts[m] || 0) + 1;
+    });
     const favouriteGameMode = Object.entries(modeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'single_player';
+
+    const mergedUser = {
+      ...u,
+      gamesPlayed: newGamesPlayed,
+      gamesWon: newGamesWon,
+      gamesLost: newGamesLost,
+      winRate: newWinRate,
+      totalScore: newTotalScore,
+      averageScore: newAvgScore,
+      highestScore: newHighestScore,
+      totalDrawings: (u.totalDrawings || 0) + (roundsCount || 1),
+    };
+
+    const updatedAchievements = evaluateAchievements(mergedUser);
 
     const updates = {
       gamesPlayed: newGamesPlayed,
@@ -360,8 +464,9 @@ export async function recordMatchResult(req, res, next) {
       averageScore: newAvgScore,
       highestScore: newHighestScore,
       matchHistory,
-      totalDrawings: (u.totalDrawings || 0) + (roundsCount || 1),
+      totalDrawings: mergedUser.totalDrawings,
       favouriteGameMode,
+      achievements: updatedAchievements,
     };
 
     await userRef.update(updates);
@@ -373,6 +478,7 @@ export async function recordMatchResult(req, res, next) {
         gamesWon: newGamesWon,
         winRate: newWinRate,
         averageScore: newAvgScore,
+        achievements: updatedAchievements,
       },
     });
   } catch (error) {

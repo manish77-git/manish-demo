@@ -117,6 +117,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
     final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
+    final achievements = auth.achievements;
+    final unlockedCount = auth.unlockedAchievementsCount;
+    final totalAchievements = achievements.length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Player Profile'),
@@ -289,6 +293,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _StatTile(label: 'Friends', value: '${auth.friendsCount}', icon: LucideIcons.users, color: AppColors.rose),
                     ],
                   ),
+                  const SizedBox(height: AppTheme.space24),
+
+                  // Achievements Section
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'ACHIEVEMENTS & BADGES',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: textMuted, letterSpacing: 1.5),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.mint.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$unlockedCount of $totalAchievements Unlocked',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.mint),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (achievements.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(AppTheme.space24),
+                      decoration: AppTheme.gameCard(context),
+                      child: Center(
+                        child: Text(
+                          'No achievement data loaded yet. Pull to refresh!',
+                          style: TextStyle(color: textMuted, fontSize: 13),
+                        ),
+                      ),
+                    )
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 2.1,
+                      ),
+                      itemCount: achievements.length,
+                      itemBuilder: (ctx, idx) {
+                        final ach = achievements[idx];
+                        final unlocked = ach['unlocked'] == true;
+                        final current = ach['current'] as int? ?? 0;
+                        final target = ach['target'] as int? ?? 1;
+                        final progress = (current / target).clamp(0.0, 1.0);
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: unlocked
+                                ? AppColors.mint.withValues(alpha: isDark ? 0.12 : 0.08)
+                                : (isDark ? AppColors.cardDark : AppColors.cardLight),
+                            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                            border: Border.all(
+                              color: unlocked
+                                  ? AppColors.mint.withValues(alpha: 0.4)
+                                  : (isDark ? AppColors.borderDark : AppColors.borderLight),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(ach['emoji'] as String? ?? '🏆', style: const TextStyle(fontSize: 20)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          ach['title'] as String? ?? 'Achievement',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: unlocked ? textColor : textMuted,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          ach['description'] as String? ?? '',
+                                          style: TextStyle(fontSize: 10, color: textMuted),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    unlocked ? LucideIcons.checkCircle2 : LucideIcons.lock,
+                                    size: 16,
+                                    color: unlocked ? AppColors.mint : textMuted.withValues(alpha: 0.5),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        unlocked ? 'Unlocked' : '$current / $target',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: unlocked ? AppColors.mint : textMuted,
+                                        ),
+                                      ),
+                                      if (unlocked)
+                                        const Icon(LucideIcons.sparkles, size: 10, color: AppColors.mint),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(3),
+                                    child: LinearProgressIndicator(
+                                      value: progress,
+                                      minHeight: 4,
+                                      backgroundColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+                                      valueColor: AlwaysStoppedAnimation<Color>(unlocked ? AppColors.mint : primary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   const SizedBox(height: AppTheme.space24),
 
                   // Recent Match History

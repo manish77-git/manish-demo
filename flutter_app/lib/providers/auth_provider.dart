@@ -4,8 +4,7 @@ import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 
-/// AuthProvider — manages authentication state, user profile, and all persistent stats.
-/// Replaces the old ProgressionProvider. All user data lives here.
+/// AuthProvider — manages authentication state, user profile, career stats, and achievements.
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
 
@@ -28,6 +27,7 @@ class AuthProvider extends ChangeNotifier {
   String _favouriteGameMode = 'single_player';
   String? _lastOnline;
   List<Map<String, dynamic>> _matchHistory = [];
+  List<Map<String, dynamic>> _achievements = [];
   Map<String, dynamic> _settings = {
     'soundEnabled': true,
     'volume': 0.8,
@@ -58,6 +58,8 @@ class AuthProvider extends ChangeNotifier {
   String get favouriteGameMode => _favouriteGameMode;
   String? get lastOnline => _lastOnline;
   List<Map<String, dynamic>> get matchHistory => List.unmodifiable(_matchHistory);
+  List<Map<String, dynamic>> get achievements => List.unmodifiable(_achievements);
+  int get unlockedAchievementsCount => _achievements.where((a) => a['unlocked'] == true).length;
   Map<String, dynamic> get settings => Map.unmodifiable(_settings);
 
   AuthProvider() {
@@ -86,6 +88,7 @@ class AuthProvider extends ChangeNotifier {
     _totalDrawings = 0;
     _friendsCount = 0;
     _matchHistory = [];
+    _achievements = [];
   }
 
   /// Attempt to restore a previously saved session.
@@ -183,6 +186,12 @@ class AuthProvider extends ChangeNotifier {
           .toList();
     }
 
+    if (u['achievements'] is List) {
+      _achievements = (u['achievements'] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+
     if (u['settings'] is Map) {
       _settings = Map<String, dynamic>.from(u['settings'] as Map);
     }
@@ -273,6 +282,12 @@ class AuthProvider extends ChangeNotifier {
         _winRate = d['winRate'] as int? ?? _winRate;
         _averageScore = d['averageScore'] as int? ?? _averageScore;
         _totalDrawings += roundsCount;
+
+        if (d['achievements'] is List) {
+          _achievements = (d['achievements'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -308,7 +323,7 @@ class AuthProvider extends ChangeNotifier {
         }),
       ).timeout(const Duration(seconds: 8));
 
-      // Refresh profile to get updated stats
+      // Refresh profile to get updated stats and achievements
       await refreshProfile();
     } catch (e) {
       debugPrint('[AuthProvider] Record match result failed: $e');
