@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../config/theme.dart';
+import '../config/app_colors.dart';
 
 /// Animated score display card with grade letter and emoji.
 class ScoreCard extends StatefulWidget {
@@ -54,15 +54,13 @@ class _ScoreCardState extends State<ScoreCard>
     super.dispose();
   }
 
-  Color get _scoreColor {
-    if (widget.score >= 80) return AppTheme.accentLight;
-    if (widget.score >= 60) return AppTheme.primaryLight;
-    if (widget.score >= 40) return AppTheme.accentYellow;
-    return AppTheme.accentCoral;
-  }
+  Color get _scoreColor => AppColors.gradeColor(widget.grade);
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.cardDark : AppColors.cardLight;
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
@@ -74,7 +72,7 @@ class _ScoreCardState extends State<ScoreCard>
               gradient: LinearGradient(
                 colors: [
                   _scoreColor.withOpacity(0.15),
-                  AppTheme.cardLight,
+                  cardBg,
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -82,26 +80,24 @@ class _ScoreCardState extends State<ScoreCard>
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: _scoreColor.withOpacity(0.3),
-                width: 2,
+                width: 1.5,
               ),
               boxShadow: [
                 BoxShadow(
                   color: _scoreColor.withOpacity(0.2),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Emoji
                 Text(
                   widget.emoji,
                   style: const TextStyle(fontSize: 48),
                 ),
                 const SizedBox(height: 12),
-                // Score
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -110,7 +106,7 @@ class _ScoreCardState extends State<ScoreCard>
                       '${_scoreAnimation.value}',
                       style: TextStyle(
                         fontSize: 56,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                         color: _scoreColor,
                         letterSpacing: -2,
                       ),
@@ -129,7 +125,6 @@ class _ScoreCardState extends State<ScoreCard>
                   ],
                 ),
                 const SizedBox(height: 4),
-                // Grade
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   decoration: BoxDecoration(
@@ -140,13 +135,12 @@ class _ScoreCardState extends State<ScoreCard>
                     'Grade ${widget.grade}',
                     style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       color: _scoreColor,
                       letterSpacing: 1.5,
                     ),
                   ),
                 ),
-                // Labels
                 if (widget.labels.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   Wrap(
@@ -155,22 +149,19 @@ class _ScoreCardState extends State<ScoreCard>
                     alignment: WrapAlignment.center,
                     children: widget.labels.take(5).map((label) {
                       return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F6),
+                          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: const Color(0xFFE5E7EB),
+                            color: isDark ? AppColors.borderDark : AppColors.borderLight,
                           ),
                         ),
                         child: Text(
                           label,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: AppTheme.textSecLight,
+                            color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
                           ),
                         ),
                       );

@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-/// SocketProvider — manages the Socket.IO connection and room state.
+enum ConnectionStatus { disconnected, connecting, connected, reconnecting }
+
+/// SocketProvider — manages the Socket.IO connection, room state, and game sync.
 class SocketProvider extends ChangeNotifier {
   static String get _serverUrl => kIsWeb && !Uri.base.toString().contains('localhost')
       ? 'https://draw-battle-backend-production.up.railway.app'
@@ -15,12 +17,14 @@ class SocketProvider extends ChangeNotifier {
     'difficulty': 'all',
     'duration': 80,
     'maxPlayers': 8,
+    'rounds': 3,
+    'isPrivate': false,
   };
   String? _errorMessage;
-  bool _isConnected = false;
+  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
 
   // ─── Callback Subscriptions ─────────────────────────────
-  void Function(String prompt, int duration)? onMatchStarted;
+  void Function(String prompt, int duration, int currentRound, int totalRounds)? onMatchStarted;
   void Function(Map<String, dynamic> history)? onDrawingHistory;
   void Function(String userId, List<dynamic> strokes)? onDrawingStroke;
   void Function(String userId)? onDrawingClear;
@@ -28,42 +32,57 @@ class SocketProvider extends ChangeNotifier {
   void Function(String userId, Map<String, dynamic> metrics)? onLiveMetrics;
   void Function(String msg, String displayName)? onChatMessageReceived;
   void Function(String emoji, String userId)? onChatReactionReceived;
+  void Function(String fromUid, String hostName, String roomCode)? onFriendInviteReceived;
 
   // Getters
   String? get roomCode => _roomCode;
   List<Map<String, dynamic>> get roomPlayers => _roomPlayers;
   Map<String, dynamic> get roomSettings => _roomSettings;
   String? get errorMessage => _errorMessage;
-  bool get isConnected => _isConnected;
+  bool get isConnected => _connectionStatus == ConnectionStatus.connected;
+  ConnectionStatus get connectionStatus => _connectionStatus;
   int get playerCount => _roomPlayers.length;
 
-  // ─── Connect ────────────────────────────────────────────
+  // ─── Connect with Auto-Reconnection ─────────────────────────
   void connect() {
-    if (_socket != null) return; // Already connected
+    if (_socket != null) return; // Already initialized
+
+    _connectionStatus = ConnectionStatus.connecting;
+    notifyListeners();
 
     _socket = io.io(
       _serverUrl,
       io.OptionBuilder()
           .setTransports(['websocket', 'polling'])
+          .enableReconnection()
+          .setReconnectionAttempts(10)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .disableAutoConnect()
           .build(),
     );
 
     _socket!.onConnect((_) {
-      _isConnected = true;
+      _connectionStatus = ConnectionStatus.connected;
       _errorMessage = null;
       notifyListeners();
       debugPrint('[SocketProvider] Connected to server');
     });
 
     _socket!.onDisconnect((_) {
-      _isConnected = false;
+      _connectionStatus = ConnectionStatus.disconnected;
       notifyListeners();
       debugPrint('[SocketProvider] Disconnected');
     });
 
+    _socket!.onReconnecting((_) {
+      _connectionStatus = ConnectionStatus.reconnecting;
+      notifyListeners();
+      debugPrint('[SocketProvider] Reconnecting...');
+    });
+
     _socket!.onConnectError((err) {
-      _isConnected = false;
+      _connectionStatus = ConnectionStatus.disconnected;
       _errorMessage = 'Could not connect to server.';
       notifyListeners();
       debugPrint('[SocketProvider] Connection error: $err');
@@ -103,7 +122,9 @@ class SocketProvider extends ChangeNotifier {
       if (onMatchStarted != null) {
         final prompt = data['prompt'] as String? ?? 'cat';
         final duration = data['duration'] as int? ?? 80;
-        onMatchStarted!(prompt, duration);
+        final currentRound = data['currentRound'] as int? ?? 1;
+        final totalRounds = data['totalRounds'] as int? ?? 3;
+        onMatchStarted!(prompt, duration, currentRound, totalRounds);
       }
     });
 
@@ -163,6 +184,15 @@ class SocketProvider extends ChangeNotifier {
       }
     });
 
+    _socket!.on('friend:invite_received', (data) {
+      if (onFriendInviteReceived != null) {
+        final fromUid = data['fromUid'] as String? ?? '';
+        final hostName = data['hostName'] as String? ?? 'A friend';
+        final code = data['roomCode'] as String? ?? '';
+        onFriendInviteReceived!(fromUid, hostName, code);
+      }
+    });
+
     _socket!.connect();
   }
 
@@ -202,12 +232,20 @@ class SocketProvider extends ChangeNotifier {
     required String difficulty,
     required String category,
     required int duration,
+    int rounds = 3,
   }) {
     _socket?.emit('match:start', {
       'roomCode': _roomCode,
       'difficulty': difficulty,
       'category': category,
       'duration': duration,
+      'rounds': rounds,
+    });
+  }
+
+  void emitNextRound() {
+    _socket?.emit('match:next_round', {
+      'roomCode': _roomCode,
     });
   }
 
@@ -265,6 +303,18 @@ class SocketProvider extends ChangeNotifier {
     _socket?.emit('chat:reaction', {
       'roomCode': _roomCode,
       'emoji': emoji,
+    });
+  }
+
+  void registerUserOnline(String uid) {
+    _socket?.emit('user:online', {'uid': uid});
+  }
+
+  void inviteFriendToRoom({required String friendUid, required String hostName, required String roomCode}) {
+    _socket?.emit('friend:invite', {
+      'friendUid': friendUid,
+      'hostName': hostName,
+      'roomCode': roomCode,
     });
   }
 

@@ -3,18 +3,21 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
+import '../../widgets/mascot_painter.dart';
 import '../../providers/drawing_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
-import '../../providers/theme_provider.dart';
 import '../../widgets/drawing_canvas.dart';
 import '../../widgets/custom_color_picker.dart';
 import '../../services/drawing_service.dart';
 import '../../services/api_service.dart';
-import '../../services/game_service.dart';
+import '../../services/prompt_service.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import '../../models/drawing_submission.dart';
 
 const List<String> _practicePrompts = [
   'cat', 'dog', 'house', 'tree', 'sun', 'car', 'flower', 'fish',
@@ -46,58 +49,63 @@ class _DrawingScreenState extends State<DrawingScreen> {
   bool _isAnalyzing = false;
   int _aiConfidence = 0;
   String _aiDetectedObject = 'nothing';
-  List<String> _aiMissingItems = [];
   String _aiSuggestion = 'Start drawing to get live suggestions.';
 
-  // Opponent Live Metrics
   final Map<String, Map<String, dynamic>> _opponentLiveMetrics = {};
+  int _evaluatingMsgIndex = 0;
+  Timer? _evaluatingMsgTimer;
 
-  final _random = math.Random();
+  static const List<String> _evaluatingMessages = [
+    'Analyzing your drawing...',
+    'Comparing with the prompt...',
+    'Generating feedback...',
+    'Calculating score...',
+  ];
+
+  bool _isSinglePlayerChallenge = false;
+  int _currentRound = 1;
+  int _totalRounds = 5;
+  int _cumulativeScore = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    if (args != null) {
-      if (args.containsKey('prompt')) {
-        _currentPrompt = args['prompt'] as String;
-      }
-      if (args.containsKey('duration')) {
-        _timeLeft = args['duration'] as int;
-      }
+    if (_hasFetchedPrompt) return;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map<String, dynamic>) {
+      _prompt = args['prompt'] as String?;
+      final duration = args['duration'] as int?;
       _isMultiplayer = args['isMultiplayer'] == true;
-      if (args.containsKey('isSpectator')) {
-        _isSpectator = args['isSpectator'] == true;
+      _isSpectator = args['isSpectator'] == true;
+      _isSinglePlayerChallenge = args['isSinglePlayerChallenge'] == true;
+      _currentRound = args['currentRound'] as int? ?? 1;
+      _totalRounds = args['totalRounds'] as int? ?? 5;
+      _cumulativeScore = args['cumulativeScore'] as int? ?? 0;
+
+      if (duration != null && duration > 0) {
+        _timeLeft = duration;
       }
     }
 
-    if (_isMultiplayer && _timeLeft > 0) {
-      _syncTimerWithServer();
-    } else if (!_isMultiplayer && !_hasFetchedPrompt) {
+    if (_prompt != null && _prompt!.isNotEmpty) {
+      _currentPrompt = _prompt!;
       _hasFetchedPrompt = true;
-      _fetchSoloPrompt();
+    } else {
+      _fetchRandomPrompt();
+      _hasFetchedPrompt = true;
     }
   }
 
-  Future<void> _fetchSoloPrompt({String? customCategory, String? customDifficulty}) async {
+  String? _prompt;
+  final math.Random _random = math.Random();
+
+  Future<void> _fetchRandomPrompt() async {
     try {
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-      final category = customCategory ?? args?['category'] as String? ?? 'all';
-      final difficulty = customDifficulty ?? args?['difficulty'] as String? ?? 'all';
-
-      final response = await http.get(
-        Uri.parse('${ApiConfig.serverUrl}/api/drawings/random-prompt?category=$category&difficulty=$difficulty'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 4));
-
-      final data = jsonDecode(response.body);
-      if (data['success'] == true && mounted) {
+      final promptObj = PromptService().getRandomPrompt();
+      if (mounted) {
         setState(() {
-          _currentPrompt = data['data']['prompt'] as String;
-        });
-      } else if (mounted) {
-        setState(() {
-          _currentPrompt = _practicePrompts[_random.nextInt(_practicePrompts.length)];
+          _currentPrompt = promptObj.text;
         });
       }
     } catch (e) {
@@ -112,7 +120,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
   Future<void> _syncTimerWithServer() async {
     try {
-      final auth = context.read<AuthProvider>();
       final socketProvider = context.read<SocketProvider>();
       final gameId = socketProvider.roomCode;
       if (gameId == null || gameId.isEmpty) return;
@@ -171,7 +178,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
       drawing.reset();
       drawing.addListener(_onStrokesChanged);
 
-      // Periodically sync clock to ensure all timers are locked in step
       Timer.periodic(const Duration(seconds: 10), (t) {
         if (mounted && _isMultiplayer && _timeLeft > 0) {
           _syncTimerWithServer();
@@ -183,7 +189,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
       if (_isMultiplayer) {
         final socketProvider = context.read<SocketProvider>();
 
-        // Spectators do not emit drawings
         if (!_isSpectator) {
           drawing.onLocalStrokesChanged = (strokesJson) {
             socketProvider.emitStroke(strokesJson);
@@ -196,7 +201,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           };
         }
 
-        // Link socket listeners to incoming strokes
         socketProvider.onDrawingHistory = (history) {
           drawing.loadDrawingHistory(history);
         };
@@ -228,6 +232,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void dispose() {
     _timer?.cancel();
     _analysisDebounce?.cancel();
+    _evaluatingMsgTimer?.cancel();
     try {
       final drawing = context.read<DrawingProvider>();
       drawing.removeListener(_onStrokesChanged);
@@ -270,7 +275,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
       setState(() {
         _aiConfidence = 0;
         _aiDetectedObject = 'nothing';
-        _aiMissingItems = [];
         _aiSuggestion = 'Draw something to begin.';
       });
       return;
@@ -296,13 +300,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
         setState(() {
           _aiConfidence = result['recognitionRate'] as int? ?? 0;
           _aiDetectedObject = result['detectedObject'] as String? ?? 'unknown';
-          _aiMissingItems = List<String>.from(result['missingFeatures'] as List? ?? []);
           _aiSuggestion = result['suggestions'] as String? ?? '';
         });
 
-        // Broadcast metrics to opponent if multiplayer
         if (_isMultiplayer) {
-          context.read<SocketProvider>().emitLiveMetrics({
+          final socketProvider = context.read<SocketProvider>();
+          socketProvider.emitLiveMetrics({
             'score': _aiConfidence,
             'detectedObject': _aiDetectedObject,
             'suggestions': _aiSuggestion,
@@ -310,200 +313,125 @@ class _DrawingScreenState extends State<DrawingScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Live analysis error: $e');
+      debugPrint('[DrawingScreen] Error in live analysis: $e');
     } finally {
-      if (mounted) setState(() => _isAnalyzing = false);
+      if (mounted) {
+        setState(() => _isAnalyzing = false);
+      }
     }
-  }
-
-  void _pickNewWord() {
-    if (_isMultiplayer) return; // Prevent prompt picking in multiplayer
-    setState(() {
-      _aiConfidence = 0;
-      _aiDetectedObject = 'nothing';
-      _aiMissingItems = [];
-      _aiSuggestion = 'Try drawing the new prompt.';
-    });
-    _fetchSoloPrompt();
-    context.read<DrawingProvider>().clear();
   }
 
   void _handleTimeUp() {
-    if (_isSpectator) {
-      final socketProvider = context.read<SocketProvider>();
-      Navigator.pushReplacementNamed(
-        context,
-        '/results',
-        arguments: {
-          'isMultiplayer': true,
-          'gameId': socketProvider.roomCode ?? '',
-          'isSpectator': true,
-        },
-      );
-    } else {
-      _handleSubmit();
-    }
+    if (_isEvaluating) return;
+    _handleSubmit();
   }
 
-  Timer? _evaluatingMsgTimer;
-  int _evaluatingMsgIndex = 0;
-  static const List<String> _evaluatingMessages = [
-    'Analyzing your drawing...',
-    'Comparing with the prompt...',
-    'Evaluating shape accuracy & details...',
-    'Generating feedback...',
-  ];
+  void _pickNewWord() {
+    if (_isMultiplayer) return;
+    context.read<DrawingProvider>().reset();
+    _fetchRandomPrompt();
+  }
 
-  void _startEvaluatingTimer() {
-    _evaluatingMsgIndex = 0;
-    _evaluatingMsgTimer?.cancel();
-    _evaluatingMsgTimer = Timer.periodic(const Duration(milliseconds: 2200), (timer) {
+  Future<void> _handleSubmit() async {
+    if (_isEvaluating) return;
+
+    setState(() {
+      _isEvaluating = true;
+      _evaluatingMsgIndex = 0;
+    });
+
+    _evaluatingMsgTimer = Timer.periodic(const Duration(seconds: 2), (t) {
       if (mounted && _isEvaluating) {
         setState(() {
           _evaluatingMsgIndex = (_evaluatingMsgIndex + 1) % _evaluatingMessages.length;
         });
       } else {
-        timer.cancel();
+        t.cancel();
       }
     });
-  }
 
-  Future<void> _handleSubmit() async {
-    final drawingProvider = context.read<DrawingProvider>();
+    final drawing = context.read<DrawingProvider>();
     final auth = context.read<AuthProvider>();
 
-    setState(() => _isEvaluating = true);
-    _startEvaluatingTimer();
-
     try {
-      final bytes = await drawingProvider.exportToPng(const Size(500, 500));
-      if (bytes == null) throw Exception('Failed to export canvas');
+      final bytes = await drawing.exportToPng(const Size(400, 400));
+      final socketProvider = context.read<SocketProvider>();
+      final roomCode = socketProvider.roomCode;
 
-      final drawingService = DrawingService(
+      final service = DrawingService(
         baseUrl: ApiConfig.serverUrl,
         getToken: () => auth.idToken,
       );
 
-      if (_isMultiplayer) {
-        final socketProvider = context.read<SocketProvider>();
-        final response = await drawingService.submitDrawing(
-          gameId: socketProvider.roomCode ?? '',
-          drawingBytes: bytes,
+      DrawingResult result;
+      if (_isMultiplayer && roomCode != null && roomCode.isNotEmpty) {
+        result = await service.submitDrawing(
+          gameId: roomCode,
+          drawingBytes: bytes ?? Uint8List(0),
         );
-
-        if (mounted) {
-          _evaluatingMsgTimer?.cancel();
-          Navigator.pushReplacementNamed(
-            context,
-            '/results',
-            arguments: {
-              'score': response.score,
-              'prompt': _currentPrompt,
-              'labels': response.labels,
-              'grade': response.grade,
-              'confidence': response.confidence,
-              'explanation': response.explanation,
-              'objectRecognitionScore': response.objectRecognitionScore,
-              'requiredFeaturesScore': response.requiredFeaturesScore,
-              'compositionScore': response.compositionScore,
-              'creativityScore': response.creativityScore,
-              'strokeQualityScore': response.strokeQualityScore,
-              'strengths': response.strengths,
-              'weaknesses': response.weaknesses,
-              'isMultiplayer': true,
-              'gameId': socketProvider.roomCode,
-            },
-          );
-        }
       } else {
-        // Solo/Practice Mode evaluation
-        final result = await drawingService.evaluateSoloDrawing(
+        result = await service.evaluateSoloDrawing(
           prompt: _currentPrompt,
-          drawingBytes: bytes,
+          drawingBytes: bytes ?? Uint8List(0),
         );
+      }
 
-        if (mounted) {
-          _evaluatingMsgTimer?.cancel();
-          Navigator.pushReplacementNamed(
-            context,
-            '/results',
-            arguments: {
-              'score': result.score,
-              'prompt': _currentPrompt,
-              'labels': result.labels,
-              'grade': result.grade,
-              'confidence': result.confidence,
-              'explanation': result.explanation,
-              'objectRecognitionScore': result.objectRecognitionScore,
-              'requiredFeaturesScore': result.requiredFeaturesScore,
-              'compositionScore': result.compositionScore,
-              'creativityScore': result.creativityScore,
-              'strokeQualityScore': result.strokeQualityScore,
-              'strengths': result.strengths,
-              'weaknesses': result.weaknesses,
-              'isMultiplayer': false,
-            },
-          );
-        }
+      if (mounted) {
+        Navigator.pushReplacementNamed(
+          context,
+          '/results',
+          arguments: {
+            'score': result.score,
+            'grade': result.grade,
+            'confidence': result.confidence,
+            'explanation': result.explanation,
+            'labels': result.labels,
+            'objectRecognitionScore': result.objectRecognitionScore,
+            'requiredFeaturesScore': result.requiredFeaturesScore,
+            'compositionScore': result.compositionScore,
+            'creativityScore': result.creativityScore,
+            'strokeQualityScore': result.strokeQualityScore,
+            'strengths': result.strengths,
+            'weaknesses': result.weaknesses,
+            'prompt': _currentPrompt,
+            'isMultiplayer': _isMultiplayer,
+            'gameId': roomCode,
+            'isSinglePlayerChallenge': _isSinglePlayerChallenge,
+            'currentRound': _currentRound,
+            'totalRounds': _totalRounds,
+            'cumulativeScore': _cumulativeScore + result.score,
+          },
+        );
       }
     } catch (e) {
-      debugPrint('Error during AI drawing evaluation: $e');
-      _evaluatingMsgTimer?.cancel();
+      debugPrint('[DrawingScreen] Evaluation error: $e');
       if (mounted) {
         setState(() => _isEvaluating = false);
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('AI Evaluation Unavailable'),
-            content: const Text('The AI evaluation service is temporarily unavailable. Please try again in a moment.'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _handleSubmit();
-                },
-                child: const Text('Try Again'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Back'),
-              ),
-            ],
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error evaluating drawing: ${e.toString()}'),
+            backgroundColor: AppColors.coral,
           ),
         );
       }
-    } finally {
-      _evaluatingMsgTimer?.cancel();
-      if (mounted) setState(() => _isEvaluating = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 900;
-    final isDark = context.watch<ThemeProvider>().isDarkMode;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
-    final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
+    final cardBg = isDark ? AppColors.cardDark : AppColors.cardLight;
+    final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
+    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final primaryColor = isDark ? AppColors.primaryDark : AppColors.primaryLight;
 
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
       body: SafeArea(
         child: Stack(
           children: [
-            // Sketchpad background grid
-            Positioned.fill(
-              child: CustomPaint(
-                painter: SketchpadBackgroundPainter(
-                  gridColor: textColor,
-                  isDark: isDark,
-                ),
-              ),
-            ),
-
             Column(
               children: [
                 // Top bar
@@ -517,20 +445,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         ? Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Left Toolbar
                               if (!_isSpectator) ...[
                                 _buildLeftToolbar(isDark, cardBg, borderColor, textColor, textMuted, primaryColor),
                                 const SizedBox(width: AppTheme.space16),
                               ],
-
-                              // Main Draw Canvas
                               Expanded(
                                 flex: 3,
                                 child: _buildCanvasArea(borderColor, primaryColor, cardBg),
                               ),
                               const SizedBox(width: AppTheme.space16),
-
-                              // Right Assist / Opponent View
                               Expanded(
                                 flex: 2,
                                 child: _buildRightMultipurposePanel(cardBg, borderColor, textColor, textMuted, primaryColor, isDark),
@@ -563,24 +486,22 @@ class _DrawingScreenState extends State<DrawingScreen> {
               ],
             ),
 
-            // Evaluating overlay
+            // Evaluating overlay with Inky Mascot
             if (_isEvaluating)
               Container(
                 color: Colors.black.withOpacity(0.6),
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: AppTheme.space32, vertical: AppTheme.space24),
-                    decoration: AppTheme.gameCardDecoration(
-                      color: cardBg,
-                      borderColor: borderColor,
-                      shadowColor: primaryColor,
-                    ),
+                    decoration: AppTheme.gameCard(context),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        const AnimatedInky(size: 85, expression: InkyExpression.thinking),
+                        const SizedBox(height: AppTheme.space16),
                         SizedBox(
-                          width: 36,
-                          height: 36,
+                          width: 32,
+                          height: 32,
                           child: CircularProgressIndicator(strokeWidth: 3, color: primaryColor),
                         ),
                         const SizedBox(height: AppTheme.space16),
@@ -605,45 +526,32 @@ class _DrawingScreenState extends State<DrawingScreen> {
   }
 
   Widget _buildCanvasArea(Color borderColor, Color primaryColor, Color cardBg) {
-    // If time remaining is 0 or user is a spectator, freeze canvas (block touch events)
     final ignoreTouch = _timeLeft == 0 || _isSpectator;
 
     return IgnorePointer(
       ignoring: ignoreTouch,
-      child: Container(
-        decoration: AppTheme.gameCardDecoration(
-          color: cardBg,
-          borderColor: borderColor,
-          shadowColor: primaryColor,
-          radius: AppTheme.radiusLarge,
-        ),
-        child: const ClipRRect(
-          borderRadius: BorderRadius.all(Radius.circular(AppTheme.radiusLarge)),
-          child: DrawingCanvas(),
-        ),
-      ),
+      child: const DrawingCanvas(),
     );
   }
 
   Widget _buildTopBar(bool isDark, Color borderColor, Color textColor, Color textMuted, Color primaryColor, Color cardBg) {
-    final dangerColor = AppTheme.accentCoral;
+    final dangerColor = AppColors.coral;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.space16, vertical: AppTheme.space12),
       decoration: BoxDecoration(
         color: cardBg,
-        border: Border(bottom: BorderSide(color: borderColor, width: 2.5)),
+        border: Border(bottom: BorderSide(color: borderColor, width: 1.5)),
       ),
       child: Row(
         children: [
           // Timer
           Container(
             padding: const EdgeInsets.symmetric(horizontal: AppTheme.space16, vertical: AppTheme.space8),
-            decoration: AppTheme.gameCardDecoration(
+            decoration: BoxDecoration(
               color: _timeLeft <= 10 ? dangerColor.withOpacity(0.12) : primaryColor.withOpacity(0.06),
-              borderColor: borderColor,
-              shadowColor: _timeLeft <= 10 ? dangerColor : primaryColor,
-              radius: AppTheme.radiusSmall,
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(color: _timeLeft <= 10 ? dangerColor : borderColor, width: 1.5),
             ),
             child: Row(
               children: [
@@ -667,15 +575,33 @@ class _DrawingScreenState extends State<DrawingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'SKETCH THIS PROMPT',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textMuted, letterSpacing: 1.0),
+                Row(
+                  children: [
+                    Text(
+                      'SKETCH THIS PROMPT',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textMuted, letterSpacing: 1.0),
+                    ),
+                    if (_isSinglePlayerChallenge) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.sunny.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _totalRounds == -1 ? 'Round $_currentRound' : 'Round $_currentRound of $_totalRounds',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: primaryColor),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 Text(
                   _currentPrompt.toUpperCase(),
                   style: TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
                     color: primaryColor,
                     letterSpacing: 2.0,
                   ),
@@ -693,7 +619,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
               style: IconButton.styleFrom(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                  side: BorderSide(color: borderColor, width: 2.5),
+                  side: BorderSide(color: borderColor, width: 1.5),
                 ),
                 padding: const EdgeInsets.all(12),
               ),
@@ -706,7 +632,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
               decoration: BoxDecoration(
                 color: primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                border: Border.all(color: borderColor, width: 2),
+                border: Border.all(color: borderColor, width: 1.5),
               ),
               child: Text(
                 'Spectating',
@@ -715,11 +641,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
             )
           else
             Container(
-              height: 48,
-              decoration: AppTheme.gameCardDecoration(
-                color: isDark ? AppTheme.accentDark : AppTheme.accentLight,
-                borderColor: borderColor,
-                shadowColor: borderColor,
+              height: 44,
+              decoration: AppTheme.gradientButton(
+                startColor: AppColors.teal,
+                endColor: AppColors.mint,
                 radius: AppTheme.radiusSmall,
               ),
               child: ElevatedButton(
@@ -727,7 +652,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
                 ),
                 child: Text(
@@ -754,17 +679,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
     return Container(
       width: MediaQuery.of(context).size.width > 900 ? 60 : double.infinity,
       height: MediaQuery.of(context).size.width > 900 ? double.infinity : 60,
-      decoration: AppTheme.gameCardDecoration(
-        color: cardBg,
-        borderColor: borderColor,
-        shadowColor: primaryColor,
-        radius: AppTheme.radiusMedium,
-      ),
+      decoration: AppTheme.gameCard(context, radius: AppTheme.radiusMedium),
       padding: const EdgeInsets.symmetric(vertical: AppTheme.space8, horizontal: 6),
       child: Flex(
         direction: MediaQuery.of(context).size.width > 900 ? Axis.vertical : Axis.horizontal,
         children: [
-          // Color picker trigger
           InkWell(
             onTap: () {
               showDialog(
@@ -795,7 +714,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: AppTheme.space8, width: AppTheme.space8),
 
-          // Tools list
           Expanded(
             child: ListView(
               scrollDirection: MediaQuery.of(context).size.width > 900 ? Axis.vertical : Axis.horizontal,
@@ -855,13 +773,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // If multiplayer, show opponent live score card
           if (_isMultiplayer) ...[
             _buildLiveScoreboard(cardBg, borderColor, textColor, textMuted, primaryColor),
             const SizedBox(height: AppTheme.space16),
           ],
-
-          // Drawing Assistant & Shape options
           _buildRightAssistantPanel(cardBg, borderColor, textColor, textMuted, primaryColor, isDark),
         ],
       ),
@@ -883,18 +798,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.space16),
-      decoration: AppTheme.gameCardDecoration(
-        color: cardBg,
-        borderColor: borderColor,
-        shadowColor: AppTheme.accentCyan,
-        radius: AppTheme.radiusMedium,
-      ),
+      decoration: AppTheme.accentCard(context, AppColors.skyBlue),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(LucideIcons.swords, color: AppTheme.accentCyan, size: 16),
+              Icon(LucideIcons.swords, color: AppColors.skyBlue, size: 16),
               const SizedBox(width: AppTheme.space8),
               const Text(
                 'LIVE DUEL METER',
@@ -904,7 +814,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: AppTheme.space12),
 
-          // Side-by-side stats
           Row(
             children: [
               Expanded(
@@ -929,7 +838,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                     const SizedBox(height: 4),
                     Text(
                       '${opponentLive['score']}%',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.accentCyan),
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.skyBlue),
                     ),
                     const SizedBox(height: 2),
                     Text('Detected: ${opponentLive['detectedObject']}', style: TextStyle(fontSize: 9, color: textMuted)),
@@ -955,16 +864,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.space16),
-      decoration: AppTheme.gameCardDecoration(
-        color: cardBg,
-        borderColor: borderColor,
-        shadowColor: primaryColor,
-        radius: AppTheme.radiusMedium,
-      ),
+      decoration: AppTheme.gameCard(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Title
           Row(
             children: [
               Icon(LucideIcons.bot, color: primaryColor, size: 16),
@@ -977,7 +880,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: AppTheme.space12),
 
-          // Toggles (Stabilization, Grid snap, Mirror)
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1001,7 +903,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: AppTheme.space12),
 
-          // Dynamic Shape Assist buttons
           const Text('Shape & Line Tools', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 6),
           Wrap(
@@ -1020,7 +921,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Selection tool actions
           if (drawing.currentTool == DrawingToolType.select) ...[
             const Text('Selection Manipulations', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 6),
@@ -1053,7 +953,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
             const SizedBox(height: 12),
           ],
 
-          // Undo, Redo, Clear
           Row(
             children: [
               Expanded(
@@ -1078,11 +977,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
             onPressed: drawing.strokes.isNotEmpty ? drawing.clear : null,
             icon: const Icon(LucideIcons.trash2, size: 14),
             label: const Text('Clear Canvas'),
-            style: OutlinedButton.styleFrom(foregroundColor: AppTheme.accentCoral),
+            style: OutlinedButton.styleFrom(foregroundColor: AppColors.coral),
           ),
           const SizedBox(height: 16),
 
-          // Live recognition metrics
           const Divider(),
           const SizedBox(height: 8),
           const Text('Live Analysis Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
@@ -1104,7 +1002,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Suggestions list
           Text('AI Assistant Suggestion:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: primaryColor)),
           const SizedBox(height: 4),
           Text(

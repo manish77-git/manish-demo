@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -21,7 +22,7 @@ class ChatPanel extends StatefulWidget {
 class _ChatPanelState extends State<ChatPanel> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
+
   final List<String> _reactions = ['👍', '😂', '🔥', '🎨', '👏', '😮', '❤️', '💀'];
 
   void _submitMessage() {
@@ -49,11 +50,11 @@ class _ChatPanelState extends State<ChatPanel> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
-    final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
+    final primaryColor = isDark ? AppColors.primaryDark : AppColors.primaryLight;
+    final cardBg = isDark ? AppColors.cardDark : AppColors.cardLight;
+    final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
+    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
 
     return Container(
       decoration: BoxDecoration(
@@ -87,7 +88,7 @@ class _ChatPanelState extends State<ChatPanel> {
               ],
             ),
           ),
-          
+
           // Messages list
           Expanded(
             child: ListView.builder(
@@ -96,19 +97,19 @@ class _ChatPanelState extends State<ChatPanel> {
               itemCount: widget.messages.length,
               itemBuilder: (context, index) {
                 final msg = widget.messages[index];
-                
+
                 if (msg['type'] == 'reaction') {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Text(
-                      '${msg['displayName']} reacted ${msg['emoji']}', 
+                      '${msg['displayName']} reacted ${msg['emoji']}',
                       style: TextStyle(color: textMuted, fontStyle: FontStyle.italic, fontSize: 12),
                     ),
                   );
                 }
-                
+
                 final isSystem = msg['isSystem'] == true;
-                
+
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(
@@ -119,9 +120,9 @@ class _ChatPanelState extends State<ChatPanel> {
                           Text(
                             msg['displayName'] ?? 'System',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold, 
+                              fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: isSystem ? AppTheme.secondaryLight : primaryColor,
+                              color: isSystem ? AppColors.teal : primaryColor,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -146,7 +147,7 @@ class _ChatPanelState extends State<ChatPanel> {
               },
             ),
           ),
-          
+
           // Reaction bar
           Container(
             height: 40,
@@ -167,7 +168,7 @@ class _ChatPanelState extends State<ChatPanel> {
               },
             ),
           ),
-          
+
           // Input field
           Container(
             padding: const EdgeInsets.all(10),
@@ -181,7 +182,7 @@ class _ChatPanelState extends State<ChatPanel> {
                     controller: _textController,
                     style: TextStyle(color: textColor, fontSize: 14),
                     decoration: InputDecoration(
-                      hintText: 'Guess the word...',
+                      hintText: 'Chat or guess...',
                       hintStyle: TextStyle(color: textMuted.withOpacity(0.6)),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -196,7 +197,7 @@ class _ChatPanelState extends State<ChatPanel> {
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                      fillColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       isDense: true,
                     ),

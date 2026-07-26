@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../providers/auth_provider.dart';
-
 import 'package:flutter/foundation.dart';
+import 'retry_helper.dart';
 
 /// Configuration for backend API
 class ApiConfig {
@@ -31,123 +31,119 @@ class ApiService {
     };
   }
 
-  // ─── PLAYER STATS ──────────────────────────────────────────────────────────
+  // ─── PLAYER STATS & PROFILE ──────────────────────────────────────────────
 
-  /// Fetch the current user's stats
+  /// Fetch the current user's full stats & profile
   Future<Map<String, dynamic>> getMyStats() async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/stats/me'), headers: headers).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data']['stats'];
-      }
-    } catch (_) {}
-    return {
-      'totalScore': 450,
-      'gamesPlayed': 5,
-      'gamesWon': 4,
-      'averageScore': 90,
-    };
+      return await RetryHelper.retryAsync(() async {
+        final headers = await _getHeaders();
+        final response = await http
+            .get(Uri.parse('${ApiConfig.baseUrl}/auth/profile'), headers: headers)
+            .timeout(const Duration(seconds: 6));
+        
+        if (response.statusCode == 200) {
+          final json = jsonDecode(response.body);
+          return json['data']['user'] as Map<String, dynamic>;
+        }
+        throw Exception('Failed to fetch profile: ${response.statusCode}');
+      }, taskName: 'getMyStats');
+    } catch (e) {
+      debugPrint('[ApiService] getMyStats fallback due to error: $e');
+      return {
+        'totalScore': auth.highestScore,
+        'gamesPlayed': auth.gamesPlayed,
+        'gamesWon': auth.gamesWon,
+        'averageScore': auth.averageScore,
+      };
+    }
   }
 
-  // ─── ACHIEVEMENTS ──────────────────────────────────────────────────────────
-
-  /// Fetch the current user's badges (with all catalog unlocked status)
-  Future<Map<String, dynamic>> getMyBadges() async {
+  /// Get public profile of another player by userId
+  Future<Map<String, dynamic>?> getPublicProfile(String userId) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/achievements/me/all'), headers: headers).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data'];
-      }
-    } catch (_) {}
-    return {'badges': []};
+      return await RetryHelper.retryAsync(() async {
+        final response = await http
+            .get(Uri.parse('${ApiConfig.baseUrl}/auth/profile/$userId'))
+            .timeout(const Duration(seconds: 6));
+        
+        if (response.statusCode == 200) {
+          final json = jsonDecode(response.body);
+          return json['data']['user'] as Map<String, dynamic>;
+        }
+        return null;
+      }, taskName: 'getPublicProfile');
+    } catch (e) {
+      debugPrint('[ApiService] getPublicProfile error: $e');
+      return null;
+    }
   }
 
-  // ─── DAILY CHALLENGE ───────────────────────────────────────────────────────
-
-  /// Fetch today's daily challenge
-  Future<Map<String, dynamic>> getDailyChallenge() async {
+  /// Update own display name or avatar
+  Future<bool> updateProfile({String? displayName, String? avatar}) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/daily')).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data']['challenge'];
-      }
-    } catch (_) {}
-    return {
-      'prompt': 'dragon',
-      'category': 'Fantasy',
-      'difficulty': 'hard',
-    };
+      return await RetryHelper.retryAsync(() async {
+        final headers = await _getHeaders();
+        final body = <String, dynamic>{};
+        if (displayName != null) body['displayName'] = displayName;
+        if (avatar != null) body['avatar'] = avatar;
+
+        final response = await http
+            .patch(
+              Uri.parse('${ApiConfig.baseUrl}/auth/profile'),
+              headers: headers,
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 6));
+        
+        if (response.statusCode == 200) {
+          final json = jsonDecode(response.body);
+          return json['success'] == true;
+        }
+        return false;
+      }, taskName: 'updateProfile');
+    } catch (e) {
+      debugPrint('[ApiService] updateProfile error: $e');
+      return false;
+    }
   }
 
-  /// Submit result for the daily challenge
-  Future<Map<String, dynamic>> submitDailyChallenge(int score, List<String> labels) async {
+  /// Record multiplayer match result
+  Future<bool> recordMatchResult({
+    required String mode,
+    required int totalScore,
+    required int averageScore,
+    required int roundsCount,
+    required int placement,
+    required int opponentCount,
+  }) async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/daily/submit'),
-        headers: headers,
-        body: jsonEncode({
-          'score': score,
-          'aiLabels': labels,
-        }),
-      ).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data'];
-      }
-    } catch (_) {}
-    return {'success': true};
-  }
-
-  /// Fetch today's daily leaderboard
-  Future<List<dynamic>> getDailyLeaderboard() async {
-    try {
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/daily/leaderboard')).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data']['leaderboard'] as List<dynamic>;
-      }
-    } catch (_) {}
-    return [];
-  }
-
-  // ─── MATCHMAKING ───────────────────────────────────────────────────────────
-
-  /// Join the matchmaking queue
-  Future<Map<String, dynamic>> joinMatchmaking(String difficulty) async {
-    try {
-      final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/matchmaking/join'),
-        headers: headers,
-        body: jsonEncode({
-          'difficulty': difficulty,
-        }),
-      ).timeout(const Duration(seconds: 4));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        return json['data'];
-      }
-    } catch (_) {}
-    return {'status': 'queued'};
-  }
-
-  /// Leave the matchmaking queue
-  Future<void> leaveMatchmaking() async {
-    try {
-      final headers = await _getHeaders();
-      await http.post(Uri.parse('${ApiConfig.baseUrl}/matchmaking/leave'), headers: headers).timeout(const Duration(seconds: 4));
-    } catch (_) {}
+      return await RetryHelper.retryAsync(() async {
+        final headers = await _getHeaders();
+        final response = await http
+            .post(
+              Uri.parse('${ApiConfig.baseUrl}/auth/match-result'),
+              headers: headers,
+              body: jsonEncode({
+                'mode': mode,
+                'totalScore': totalScore,
+                'averageScore': averageScore,
+                'roundsCount': roundsCount,
+                'placement': placement,
+                'opponentCount': opponentCount,
+              }),
+            )
+            .timeout(const Duration(seconds: 6));
+        
+        if (response.statusCode == 200) {
+          final json = jsonDecode(response.body);
+          return json['success'] == true;
+        }
+        return false;
+      }, taskName: 'recordMatchResult');
+    } catch (e) {
+      debugPrint('[ApiService] recordMatchResult error: $e');
+      return false;
+    }
   }
 }

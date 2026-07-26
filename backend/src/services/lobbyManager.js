@@ -1,13 +1,13 @@
 /**
- * LobbyManager — In-memory room, player, and settings tracking.
+ * LobbyManager — In-memory room, player, multi-round match, and settings tracking.
  *
  * Supports host settings updates, player ready-up states,
- * and player disconnection grace periods (reconnection support).
+ * multi-round game flow, and player disconnection grace periods (reconnection support).
  */
 
 class LobbyManager {
   constructor() {
-    /** @type {Map<string, {roomCode: string, players: Array<any>, settings: any, status: string}>} */
+    /** @type {Map<string, {roomCode: string, players: Array<any>, settings: any, status: string, matchState: any}>} */
     this.rooms = new Map();
 
     /** @type {Map<string, string>} socketId -> roomCode */
@@ -42,9 +42,12 @@ class LobbyManager {
         category: 'all',
         difficulty: 'all',
         duration: 80,
-        maxPlayers: 10
+        maxPlayers: 10,
+        rounds: 3,
+        isPrivate: false,
       },
-      status: 'lobby' // 'lobby' | 'playing'
+      status: 'lobby', // 'lobby' | 'playing' | 'results'
+      matchState: null, // populated on match start
     };
 
     this.rooms.set(roomCode, room);
@@ -128,6 +131,116 @@ class LobbyManager {
     return room;
   }
 
+  // ─── Multi-Round Match State ────────────────────────────
+
+  /**
+   * Initialize match state for a new game.
+   */
+  startMatch(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return null;
+
+    room.status = 'playing';
+    room.matchState = {
+      currentRound: 1,
+      totalRounds: room.settings.rounds || 3,
+      rounds: [], // { round, prompt, scores: { [uid]: number } }
+      playerTotals: {}, // { [uid]: totalScore }
+    };
+
+    // Initialize player totals
+    room.players.filter(p => !p.isSpectator).forEach(p => {
+      room.matchState.playerTotals[p.uid] = 0;
+    });
+
+    return room.matchState;
+  }
+
+  /**
+   * Set the prompt for the current round.
+   */
+  setRoundPrompt(roomCode, prompt) {
+    const room = this.rooms.get(roomCode);
+    if (!room || !room.matchState) return;
+
+    const currentRound = room.matchState.currentRound;
+    // Ensure the rounds array has an entry for this round
+    if (room.matchState.rounds.length < currentRound) {
+      room.matchState.rounds.push({
+        round: currentRound,
+        prompt,
+        scores: {},
+      });
+    } else {
+      room.matchState.rounds[currentRound - 1].prompt = prompt;
+    }
+  }
+
+  /**
+   * Record a player's score for the current round.
+   */
+  recordRoundScore(roomCode, uid, score) {
+    const room = this.rooms.get(roomCode);
+    if (!room || !room.matchState) return null;
+
+    const roundIndex = room.matchState.currentRound - 1;
+    if (roundIndex >= 0 && roundIndex < room.matchState.rounds.length) {
+      room.matchState.rounds[roundIndex].scores[uid] = score;
+      room.matchState.playerTotals[uid] = (room.matchState.playerTotals[uid] || 0) + score;
+    }
+
+    return room.matchState;
+  }
+
+  /**
+   * Advance to the next round.
+   * Returns null if all rounds are complete.
+   */
+  advanceRound(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room || !room.matchState) return null;
+
+    const { currentRound, totalRounds } = room.matchState;
+    if (currentRound >= totalRounds) return null;
+
+    room.matchState.currentRound = currentRound + 1;
+    return {
+      currentRound: room.matchState.currentRound,
+      totalRounds: room.matchState.totalRounds,
+    };
+  }
+
+  /**
+   * Get the final match results.
+   */
+  getFinalResults(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room || !room.matchState) return null;
+
+    const { playerTotals, rounds, totalRounds } = room.matchState;
+
+    // Build sorted rankings
+    const rankings = Object.entries(playerTotals)
+      .map(([uid, totalScore]) => {
+        const player = room.players.find(p => p.uid === uid);
+        return {
+          uid,
+          displayName: player ? player.displayName : 'Unknown',
+          totalScore,
+          averageScore: Math.round(totalScore / Math.max(rounds.length, 1)),
+        };
+      })
+      .sort((a, b) => b.totalScore - a.totalScore);
+
+    return {
+      rankings,
+      rounds,
+      totalRounds,
+    };
+  }
+
+  // ─── Drawing / Strokes ──────────────────────────────────
+
   /**
    * Set or update strokes for a player.
    */
@@ -144,6 +257,8 @@ class LobbyManager {
   getStrokes(roomCode) {
     return this.drawings.get(roomCode) || {};
   }
+
+  // ─── Disconnect / Reconnect ─────────────────────────────
 
   /**
    * Mark a player as offline on disconnect, starting the reconnect grace period.
@@ -162,7 +277,7 @@ class LobbyManager {
     player.isOnline = false;
     player.isReady = false;
 
-    // Start a 15-second grace period for reconnection
+    // Start a 30-second grace period for reconnection
     const timeoutKey = `${roomCode}:${player.uid}`;
     if (this.reconnectTimeouts.has(timeoutKey)) {
       clearTimeout(this.reconnectTimeouts.get(timeoutKey));
@@ -176,7 +291,7 @@ class LobbyManager {
       if (result && onTimeout) {
         onTimeout(roomCode, result.room);
       }
-    }, 15000); // 15 seconds
+    }, 30000); // 30 seconds (increased from 15s)
 
     this.reconnectTimeouts.set(timeoutKey, timeout);
     return { roomCode, room };

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../config/theme.dart';
+import '../config/app_colors.dart';
 
 /// Animated countdown timer widget with circular progress indicator.
 class TimerWidget extends StatefulWidget {
@@ -55,8 +55,9 @@ class _TimerWidgetState extends State<TimerWidget>
 
   @override
   Widget build(BuildContext context) {
-    final progress = _remainingSeconds / widget.totalSeconds;
+    final progress = (_remainingSeconds / widget.totalSeconds).clamp(0.0, 1.0);
     final isUrgent = _remainingSeconds <= 10;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return AnimatedBuilder(
       animation: _controller,
@@ -65,13 +66,13 @@ class _TimerWidgetState extends State<TimerWidget>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: isUrgent
-                ? AppTheme.accentCoral.withOpacity(0.15)
-                : AppTheme.cardDark.withOpacity(0.8),
+                ? AppColors.coral.withOpacity(0.15)
+                : (isDark ? AppColors.cardDark : AppColors.cardLight),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: isUrgent
-                  ? AppTheme.accentCoral.withOpacity(0.5)
-                  : Colors.white.withOpacity(0.1),
+                  ? AppColors.coral
+                  : (isDark ? AppColors.borderDark : AppColors.borderLight),
               width: 1.5,
             ),
           ),
@@ -94,7 +95,9 @@ class _TimerWidgetState extends State<TimerWidget>
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: isUrgent ? AppTheme.accentCoral : AppTheme.textDark,
+                        color: isUrgent
+                            ? AppColors.coral
+                            : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
                         letterSpacing: 1,
                       ),
                     ),
@@ -127,6 +130,7 @@ class SpacerWidgetWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       width: 28,
       height: 28,
@@ -135,16 +139,18 @@ class SpacerWidgetWrapper extends StatelessWidget {
           CircularProgressIndicator(
             value: progress,
             strokeWidth: 3,
-            backgroundColor: Colors.white.withOpacity(0.1),
+            backgroundColor: (isDark ? Colors.white : Colors.black).withOpacity(0.1),
             valueColor: AlwaysStoppedAnimation<Color>(
-              isUrgent ? AppTheme.accentCoral : AppTheme.accentLight,
+              isUrgent ? AppColors.coral : AppColors.teal,
             ),
           ),
           Center(
             child: Icon(
               Icons.timer_outlined,
               size: 14,
-              color: isUrgent ? AppTheme.accentCoral : AppTheme.textSecDark,
+              color: isUrgent
+                  ? AppColors.coral
+                  : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
             ),
           ),
         ],

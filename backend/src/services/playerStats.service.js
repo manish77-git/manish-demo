@@ -1,5 +1,4 @@
 import { getFirestore } from '../config/firebase.js';
-import { checkAndAwardBadges } from './achievements.service.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -79,16 +78,6 @@ async function updatePlayerStats(userId, gameRecord) {
         [`scoreDistribution.${_getScoreBucket(gameRecord.score)}`]:
           (stats.scoreDistribution?.[_getScoreBucket(gameRecord.score)] || 0) + 1,
       });
-      // Trigger achievement check
-      await checkAndAwardBadges(userId, {
-        score: gameRecord.score,
-        rank: gameRecord.rank,
-        isWin: gameRecord.isWin,
-      }, {
-        totalGames: newGames,
-        totalWins: newWins,
-        currentWinStreak: currentStreak,
-      });
     } else {
       // First game — initialize stats
       const firstStats = {
@@ -120,17 +109,6 @@ async function updatePlayerStats(userId, gameRecord) {
       };
 
       await statsRef.set(firstStats);
-
-      // Trigger achievement check
-      await checkAndAwardBadges(userId, {
-        score: gameRecord.score,
-        rank: gameRecord.rank,
-        isWin: gameRecord.isWin,
-      }, {
-        totalGames: 1,
-        totalWins: gameRecord.isWin ? 1 : 0,
-        currentWinStreak: gameRecord.isWin ? 1 : 0,
-      });
     }
   } catch (error) {
     logger.warn('Failed to update player stats:', error.message);

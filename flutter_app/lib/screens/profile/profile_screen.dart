@@ -2,30 +2,120 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/progression_provider.dart';
-import '../../providers/theme_provider.dart';
 import '../../services/audio_service.dart';
-import '../../widgets/empty_state_widget.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
+import '../../widgets/mascot_painter.dart';
 
-class ProfileScreen extends StatelessWidget {
+const List<String> _emojiAvatars = [
+  '🎨', '🐱', '🐶', '🦊', '🦁', '🐼', '🦄', '🤖',
+  '🧙‍♂️', '👑', '🚀', '⭐', '🔥', '🌈', '🍕', '🎸',
+  '⚽', '🏆', '👾', '🎯', '🥑', '🌮', '🐉', '🦉',
+];
+
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isEditingName = false;
+  late TextEditingController _nameController;
+
+  @override
+  void initState() {
+    super.initState();
+    final auth = context.read<AuthProvider>();
+    _nameController = TextEditingController(text: auth.displayName);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _showAvatarPicker() {
+    AudioService().playClick();
+    final auth = context.read<AuthProvider>();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.all(AppTheme.space24),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.cardDark : AppColors.cardLight,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXL)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Choose Avatar', style: Theme.of(ctx).textTheme.headlineSmall),
+              const SizedBox(height: AppTheme.space16),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 6,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                ),
+                itemCount: _emojiAvatars.length,
+                itemBuilder: (ctx, idx) {
+                  final emoji = _emojiAvatars[idx];
+                  final isSelected = auth.avatar == emoji;
+                  return GestureDetector(
+                    onTap: () {
+                      AudioService().playClick();
+                      auth.updateProfile(avatar: emoji);
+                      Navigator.pop(ctx);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.coral.withValues(alpha: 0.2)
+                            : (isDark ? AppColors.bgDark : AppColors.bgLight),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected ? AppColors.coral : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: AppTheme.space16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _saveName() {
+    final text = _nameController.text.trim();
+    if (text.isNotEmpty) {
+      context.read<AuthProvider>().updateProfile(displayName: text);
+    }
+    setState(() => _isEditingName = false);
+  }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final progression = context.watch<ProgressionProvider>();
-    final isDark = context.watch<ThemeProvider>().isDarkMode;
-
-    final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
-    final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
-
-    final winRate = progression.gamesPlayed > 0
-        ? ((progression.wins / progression.gamesPlayed) * 100).round()
-        : 0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = isDark ? AppColors.primaryDark : AppColors.primaryLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
     return Scaffold(
       appBar: AppBar(
@@ -38,114 +128,288 @@ class ProfileScreen extends StatelessWidget {
           },
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppTheme.space24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header Card: Avatar, Name, Title
-                Container(
-                  padding: const EdgeInsets.all(AppTheme.space24),
-                  decoration: AppTheme.gameCardDecoration(
-                    color: cardBg,
-                    borderColor: borderColor,
-                    shadowColor: primaryColor,
-                    radius: AppTheme.radiusLarge,
+      body: RefreshIndicator(
+        onRefresh: () => auth.refreshProfile(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppTheme.space24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Profile Card
+                  Container(
+                    padding: const EdgeInsets.all(AppTheme.space24),
+                    decoration: AppTheme.gameCard(context),
+                    child: Row(
+                      children: [
+                        // Avatar (tappable to edit)
+                        GestureDetector(
+                          onTap: _showAvatarPicker,
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: 76,
+                                height: 76,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [primary, AppColors.lavender],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Text(auth.avatar, style: const TextStyle(fontSize: 40)),
+                                ),
+                              ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.coral,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(LucideIcons.pencil, size: 12, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _isEditingName
+                                  ? Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _nameController,
+                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: textColor),
+                                            decoration: const InputDecoration(isDense: true),
+                                            onSubmitted: (_) => _saveName(),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(LucideIcons.check, color: AppColors.mint),
+                                          onPressed: _saveName,
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            auth.displayName,
+                                            style: Theme.of(context).textTheme.headlineLarge,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(LucideIcons.pencil, size: 16, color: textMuted),
+                                          onPressed: () => setState(() => _isEditingName = true),
+                                        ),
+                                      ],
+                                    ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '@${auth.username}',
+                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
+                  const SizedBox(height: AppTheme.space24),
+
+                  // Personal Best Highlight Card
+                  Container(
+                    padding: const EdgeInsets.all(AppTheme.space20),
+                    decoration: AppTheme.accentCard(context, AppColors.sunny),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: const BoxDecoration(
+                            color: AppColors.sunny,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(LucideIcons.trophy, color: Colors.white, size: 24),
+                        ),
+                        const SizedBox(width: AppTheme.space16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'PERSONAL HIGH SCORE',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${auth.highestScore} pts',
+                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: primary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const AnimatedInky(size: 50, expression: InkyExpression.excited),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppTheme.space24),
+
+                  // Stats grid
+                  Text(
+                    'CAREER STATISTICS',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: textMuted, letterSpacing: 1.5),
+                  ),
+                  const SizedBox(height: 12),
+                  GridView.count(
+                    crossAxisCount: 3,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.3,
                     children: [
-                      Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: borderColor, width: 3),
-                        ),
-                        child: const Icon(LucideIcons.user, color: Colors.white, size: 36),
-                      ),
-                      const SizedBox(width: 20),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              auth.displayName,
-                              style: Theme.of(context).textTheme.headlineLarge,
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: primaryColor.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: borderColor, width: 1.5),
-                              ),
-                              child: Text(
-                                progression.playerTitle,
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: primaryColor),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _StatTile(label: 'Games Played', value: '${auth.gamesPlayed}', icon: LucideIcons.gamepad2, color: AppColors.teal),
+                      _StatTile(label: 'Wins', value: '${auth.gamesWon}', icon: LucideIcons.crown, color: AppColors.sunny),
+                      _StatTile(label: 'Win Rate', value: '${auth.winRate}%', icon: LucideIcons.percent, color: AppColors.lavender),
+                      _StatTile(label: 'Avg Score', value: '${auth.averageScore}', icon: LucideIcons.target, color: AppColors.coral),
+                      _StatTile(label: 'Total Drawings', value: '${auth.totalDrawings}', icon: LucideIcons.paintbrush, color: AppColors.skyBlue),
+                      _StatTile(label: 'Friends', value: '${auth.friendsCount}', icon: LucideIcons.users, color: AppColors.rose),
                     ],
                   ),
-                ),
-                const SizedBox(height: AppTheme.space24),
+                  const SizedBox(height: AppTheme.space24),
 
-                // Pure Player Statistics Grid
-                Text('MATCH STATISTICS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: textMuted, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
+                  // Recent Match History
+                  Text(
+                    'RECENT MATCHES',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: textMuted, letterSpacing: 1.5),
+                  ),
+                  const SizedBox(height: 12),
+                  if (auth.matchHistory.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(AppTheme.space24),
+                      decoration: AppTheme.gameCard(context),
+                      child: Center(
+                        child: Text(
+                          'No matches played yet. Start a Single Player Challenge or Multiplayer game!',
+                          style: TextStyle(color: textMuted, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      decoration: AppTheme.gameCard(context),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: auth.matchHistory.length.clamp(0, 10),
+                        separatorBuilder: (ctx, idx) => Divider(height: 1, color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                        itemBuilder: (ctx, idx) {
+                          final match = auth.matchHistory[idx];
+                          final isSingle = match['mode'] == 'single_player';
+                          final score = match['totalScore'] as int? ?? 0;
+                          final dateStr = match['date'] as String? ?? '';
+                          String formattedDate = '';
+                          if (dateStr.isNotEmpty) {
+                            try {
+                              final d = DateTime.parse(dateStr);
+                              formattedDate = '${d.day}/${d.month}/${d.year}';
+                            } catch (_) {}
+                          }
 
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1.5,
-                  children: [
-                    _buildStatTile('Matches Played', '${progression.gamesPlayed}', LucideIcons.gamepad2, primaryColor, cardBg, borderColor, textColor),
-                    _buildStatTile('Duels Won', '${progression.wins}', LucideIcons.trophy, AppTheme.accentYellow, cardBg, borderColor, textColor),
-                    _buildStatTile('Win Rate', '$winRate%', LucideIcons.percent, AppTheme.accentCyan, cardBg, borderColor, textColor),
-                  ],
-                ),
-                const SizedBox(height: AppTheme.space24),
-
-                // Pure Game Overview Banner
-                const EmptyStateWidget(
-                  title: 'Pure Drawing & Battle Fun!',
-                  message: 'No paywalls, no coins, no fake leaderboards. Every match is 100% pure drawing enjoyment.',
-                  icon: LucideIcons.paintbrush,
-                ),
-              ],
+                          return ListTile(
+                            leading: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: (isSingle ? AppColors.teal : AppColors.coral).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                isSingle ? LucideIcons.target : LucideIcons.swords,
+                                color: isSingle ? AppColors.teal : AppColors.coral,
+                                size: 18,
+                              ),
+                            ),
+                            title: Text(
+                              isSingle ? 'Single Player Challenge' : 'Multiplayer Duel',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
+                            ),
+                            subtitle: Text(
+                              '$formattedDate · ${match['roundsCount'] ?? 1} rounds',
+                              style: TextStyle(fontSize: 12, color: textMuted),
+                            ),
+                            trailing: Text(
+                              '$score pts',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: primary),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildStatTile(String label, String value, IconData icon, Color color, Color cardBg, Color borderColor, Color textColor) {
+class _StatTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _StatTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: AppTheme.gameCardDecoration(
-        color: color.withOpacity(0.1),
-        borderColor: borderColor,
-        shadowColor: color,
-        radius: AppTheme.radiusMedium,
-      ),
+      padding: const EdgeInsets.all(10),
+      decoration: AppTheme.accentCard(context, color, radius: AppTheme.radiusMedium),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color, size: 22),
+          Icon(icon, color: color, size: 20),
           const SizedBox(height: 4),
-          Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: textColor)),
-          Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11, color: textColor.withOpacity(0.7))),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
+              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+            ),
+          ),
         ],
       ),
     );

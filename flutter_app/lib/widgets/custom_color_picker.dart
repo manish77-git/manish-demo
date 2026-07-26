@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 
 /// Advanced Color Picker supporting HSV, RGB sliders, HEX text input, opacity, and custom favorite palettes.
@@ -26,27 +27,17 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
 
   final TextEditingController _hexController = TextEditingController();
 
-  final List<Color> _presets = [
-    const Color(0xFF7C3AED), // Brand violet
-    const Color(0xFFEF4444), // Red
-    const Color(0xFFF97316), // Orange
-    const Color(0xFFF59E0B), // Amber
-    const Color(0xFF10B981), // Emerald
-    const Color(0xFF06B6D4), // Cyan
-    const Color(0xFF3B82F6), // Blue
-    const Color(0xFFEC4899), // Pink
-    const Color(0xFFFFFFFF), // White
-    const Color(0xFF1E293B), // Dark Slate
-  ];
+  final List<Color> _presets = AppColors.canvasPresets;
 
   static final List<Color> _recentColors = [
-    const Color(0xFF7C3AED),
-    const Color(0xFF3B82F6),
+    const Color(0xFFFF6B6B),
+    const Color(0xFF4ECDC4),
+    const Color(0xFFFFE66D),
   ];
 
   static final List<Color> _favoriteColors = [
-    const Color(0xFFEF4444),
-    const Color(0xFF10B981),
+    const Color(0xFFFF6B6B),
+    const Color(0xFF4ECDC4),
   ];
 
   @override
@@ -69,7 +60,6 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
 
   void _updateHexText() {
     final hexCode = _selectedColor.value.toRadixString(16).padLeft(8, '0').toUpperCase();
-    // Drop alpha channel prefix from display if fully opaque
     _hexController.text = hexCode.substring(2);
   }
 
@@ -109,16 +99,16 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
+    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
 
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: borderColor, width: 2.5),
+        side: BorderSide(color: borderColor, width: 1.5),
       ),
-      backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
+      backgroundColor: isDark ? AppColors.cardDark : AppColors.cardLight,
       child: Container(
         constraints: const BoxConstraints(maxWidth: 380),
         padding: const EdgeInsets.all(20),
@@ -133,7 +123,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                 children: [
                   Text(
                     'Color System',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textColor),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: textColor),
                   ),
                   IconButton(
                     icon: Icon(LucideIcons.x, color: textColor),
@@ -146,11 +136,10 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
               // Preview block
               Container(
                 height: 56,
-                decoration: AppTheme.gameCardDecoration(
+                decoration: BoxDecoration(
                   color: _selectedColor,
-                  borderColor: borderColor,
-                  shadowColor: borderColor,
-                  radius: AppTheme.radiusMedium,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                  border: Border.all(color: borderColor, width: 1.5),
                 ),
                 child: Center(
                   child: Container(
@@ -185,7 +174,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                           value: _selectedColor.red.toDouble(),
                           min: 0,
                           max: 255,
-                          activeColor: Colors.red,
+                          activeColor: AppColors.coral,
                           onChanged: (val) {
                             final c = Color.fromARGB(
                               (_opacity * 255).round(),
@@ -213,7 +202,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                           value: _selectedColor.green.toDouble(),
                           min: 0,
                           max: 255,
-                          activeColor: Colors.green,
+                          activeColor: AppColors.mint,
                           onChanged: (val) {
                             final c = Color.fromARGB(
                               (_opacity * 255).round(),
@@ -241,7 +230,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                           value: _selectedColor.blue.toDouble(),
                           min: 0,
                           max: 255,
-                          activeColor: Colors.blue,
+                          activeColor: AppColors.skyBlue,
                           onChanged: (val) {
                             final c = Color.fromARGB(
                               (_opacity * 255).round(),
@@ -269,7 +258,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                 value: _hue,
                 min: 0,
                 max: 360,
-                activeColor: Colors.purple,
+                activeColor: AppColors.lavender,
                 onChanged: (val) {
                   _hue = val;
                   _onColorUpdated();
@@ -335,7 +324,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
               // Hex Manual Input Box
               Row(
                 children: [
-                  const Text('HEX INPUT:  #', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                  const Text('HEX INPUT:  #', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
                   Expanded(
                     child: Container(
                       height: 36,
@@ -353,7 +342,7 @@ class _CustomColorPickerState extends State<CustomColorPicker> {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: Icon(LucideIcons.star, color: _favoriteColors.contains(_selectedColor) ? AppTheme.accentYellow : textMuted),
+                    icon: Icon(LucideIcons.star, color: _favoriteColors.contains(_selectedColor) ? AppColors.sunny : textMuted),
                     onPressed: () {
                       setState(() {
                         if (_favoriteColors.contains(_selectedColor)) {

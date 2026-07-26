@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../config/theme.dart';
+import '../config/app_colors.dart';
 
 /// Player avatar widget with optional rank badge.
 class PlayerAvatar extends StatelessWidget {
@@ -17,16 +17,8 @@ class PlayerAvatar extends StatelessWidget {
   });
 
   Color get _avatarColor {
-    // Generate consistent color from display name
     final hash = displayName.hashCode;
-    final colors = [
-      const Color(0xFF7C3AED), // Violet
-      const Color(0xFF4F46E5), // Indigo
-      const Color(0xFFEF4444), // Red
-      const Color(0xFFFBBF24), // Amber
-      const Color(0xFF10B981), // Emerald
-      const Color(0xFF06B6D4), // Cyan
-    ];
+    const colors = AppColors.confetti;
     return colors[hash.abs() % colors.length];
   }
 
@@ -70,7 +62,6 @@ class PlayerAvatar extends StatelessWidget {
                 )
               : _buildInitial(),
         ),
-        // Rank badge
         if (rank != null)
           Positioned(
             right: -4,
@@ -138,4 +129,3 @@ class PlayerAvatar extends StatelessWidget {
     }
   }
 }
-

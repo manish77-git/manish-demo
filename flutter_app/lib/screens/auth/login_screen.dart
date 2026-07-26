@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/theme_provider.dart';
-import '../../providers/progression_provider.dart';
 import '../../services/audio_service.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
+import '../../widgets/mascot_painter.dart';
+import '../../widgets/doodle_painter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,31 +16,31 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
-
-  late AnimationController _animController;
+  late AnimationController _entranceController;
   late Animation<double> _fadeAnim;
-  late Animation<double> _scaleAnim;
+  late Animation<Offset> _slideAnim;
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
+    _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 700),
     );
-    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
-    _scaleAnim = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOut),
-    );
-    _animController.forward();
+    _fadeAnim = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.15),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic));
+    _entranceController.forward();
   }
 
   @override
   void dispose() {
-    _animController.dispose();
+    _entranceController.dispose();
     _usernameController.dispose();
     super.dispose();
   }
@@ -53,145 +54,98 @@ class _LoginScreenState extends State<LoginScreen>
     final success = await auth.signInWithUsername(name);
 
     if (success && mounted) {
-      await context.read<ProgressionProvider>().loadProfileForUsername(name);
       Navigator.pushReplacementNamed(context, '/home');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.watch<ThemeProvider>().isDarkMode;
-    final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
-    final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = isDark ? AppColors.primaryDark : AppColors.primaryLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
 
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
       body: Stack(
         children: [
-          // Sketchpad grid backdrop
+          // Decorative background
           Positioned.fill(
             child: CustomPaint(
-              painter: SketchpadBackgroundPainter(
-                gridColor: textColor,
+              painter: DoodlePainter(
+                primaryColor: primary,
                 isDark: isDark,
+                seed: 99,
               ),
             ),
-          ),
-
-          // Floating background bubbles
-          Positioned(
-            top: 40,
-            left: 50,
-            child: _buildBubble(AppTheme.accentYellow.withOpacity(0.08), 80),
-          ),
-          Positioned(
-            bottom: 60,
-            right: 40,
-            child: _buildBubble(AppTheme.accentCoral.withOpacity(0.08), 120),
-          ),
-          Positioned(
-            top: 250,
-            right: 80,
-            child: _buildBubble(primaryColor.withOpacity(0.06), 60),
           ),
 
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space32),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTheme.space24,
+                  vertical: AppTheme.space32,
+                ),
                 child: FadeTransition(
                   opacity: _fadeAnim,
-                  child: ScaleTransition(
-                    scale: _scaleAnim,
+                  child: SlideTransition(
+                    position: _slideAnim,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // 3D Neobrutalist logo badge
-                          Container(
-                            height: 120,
-                            alignment: Alignment.center,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Container(
-                                  width: 90,
-                                  height: 90,
-                                  decoration: AppTheme.gameCardDecoration(
-                                    color: primaryColor,
-                                    borderColor: borderColor,
-                                    shadowColor: borderColor,
-                                    radius: 24,
-                                  ),
-                                  child: const Icon(
-                                    LucideIcons.brush,
-                                    size: 40,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 5,
-                                  right: 5,
-                                  child: Icon(LucideIcons.sparkles, color: AppTheme.accentYellow, size: 24),
-                                ),
-                              ],
-                            ),
+                          // Inky mascot waving
+                          const AnimatedInky(
+                            size: 100,
+                            expression: InkyExpression.waving,
                           ),
                           const SizedBox(height: AppTheme.space16),
 
+                          // App title
                           Text(
                             'DrawBattle',
-                            style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                ),
+                            style: Theme.of(context).textTheme.displayLarge,
                           ),
                           const SizedBox(height: AppTheme.space8),
                           Text(
-                            'Sketch fast · Duel friends · Let AI judge',
+                            'Draw. Battle. Laugh. Win.',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  color: textMuted,
-                                ),
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: textMuted,
+                            ),
                           ),
                           const SizedBox(height: AppTheme.space32),
 
-                          // Login form card
+                          // Login card
                           Container(
                             padding: const EdgeInsets.all(AppTheme.space24),
-                            decoration: AppTheme.gameCardDecoration(
-                              color: cardBg,
-                              borderColor: borderColor,
-                              shadowColor: primaryColor,
-                            ),
+                            decoration: AppTheme.gameCard(context),
                             child: Form(
                               key: _formKey,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Text(
-                                    'Choose nickname',
+                                    'Choose your name',
                                     style: Theme.of(context).textTheme.headlineLarge,
                                   ),
                                   const SizedBox(height: AppTheme.space4),
                                   Text(
-                                    'Enter a name to join the sketch arena',
+                                    'Enter a nickname to join the arena',
                                     style: TextStyle(
                                       fontSize: 13,
                                       color: textMuted,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                   const SizedBox(height: AppTheme.space24),
+
                                   TextFormField(
                                     controller: _usernameController,
                                     textCapitalization: TextCapitalization.words,
                                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                     decoration: InputDecoration(
                                       hintText: 'e.g. PixelWarrior',
                                       prefixIcon: Icon(LucideIcons.user, color: textMuted, size: 18),
@@ -204,9 +158,9 @@ class _LoginScreenState extends State<LoginScreen>
                                     },
                                     onFieldSubmitted: (_) => _handleJoin(),
                                   ),
-                                  const SizedBox(height: AppTheme.space24),
+                                  const SizedBox(height: AppTheme.space20),
 
-                                  // Error Display
+                                  // Error
                                   Consumer<AuthProvider>(
                                     builder: (context, auth, _) {
                                       if (auth.error != null) {
@@ -214,21 +168,22 @@ class _LoginScreenState extends State<LoginScreen>
                                           margin: const EdgeInsets.only(bottom: AppTheme.space16),
                                           padding: const EdgeInsets.all(AppTheme.space12),
                                           decoration: BoxDecoration(
-                                            color: AppTheme.accentCoral.withOpacity(0.1),
+                                            color: AppColors.coral.withValues(alpha: 0.1),
                                             borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                            border: Border.all(
-                                              color: borderColor,
-                                              width: 2,
-                                            ),
+                                            border: Border.all(color: AppColors.coral.withValues(alpha: 0.3)),
                                           ),
                                           child: Row(
                                             children: [
-                                              const Icon(LucideIcons.alertTriangle, color: AppTheme.accentCoral, size: 16),
+                                              const Icon(LucideIcons.alertTriangle, color: AppColors.coral, size: 16),
                                               const SizedBox(width: AppTheme.space8),
                                               Expanded(
                                                 child: Text(
                                                   auth.error!,
-                                                  style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
+                                                  style: const TextStyle(
+                                                    color: AppColors.coral,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                                 ),
                                               ),
                                             ],
@@ -239,17 +194,12 @@ class _LoginScreenState extends State<LoginScreen>
                                     },
                                   ),
 
-                                  // Get Started Button
+                                  // Join button
                                   Consumer<AuthProvider>(
                                     builder: (context, auth, _) {
                                       return Container(
-                                        height: 56,
-                                        decoration: AppTheme.gameCardDecoration(
-                                          color: primaryColor,
-                                          borderColor: borderColor,
-                                          shadowColor: borderColor,
-                                          radius: AppTheme.radiusMedium,
-                                        ),
+                                        height: 54,
+                                        decoration: AppTheme.gradientButton(),
                                         child: ElevatedButton(
                                           onPressed: auth.isLoading ? null : _handleJoin,
                                           style: ElevatedButton.styleFrom(
@@ -268,7 +218,14 @@ class _LoginScreenState extends State<LoginScreen>
                                                     color: Colors.white,
                                                   ),
                                                 )
-                                              : const Text('Get Started'),
+                                              : const Row(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    Icon(LucideIcons.sparkles, size: 18),
+                                                    SizedBox(width: 8),
+                                                    Text("Let's Draw!"),
+                                                  ],
+                                                ),
                                         ),
                                       );
                                     },
@@ -286,17 +243,6 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBubble(Color color, double size) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
       ),
     );
   }

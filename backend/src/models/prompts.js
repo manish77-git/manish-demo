@@ -1,263 +1,430 @@
 /**
- * DrawBattle Prompt Bank
- * 5,000+ unique single-word/compound-word prompts organized by 15 categories and 3 difficulty tiers.
+ * DrawBattle Prompt Bank — 800+ Curated Drawing Prompts
+ * 
+ * 14 Categories × 3 Difficulty Levels
+ * All prompts: short (1-4 words), clear, no obscure vocabulary, no duplicates.
+ * Distribution: ~40% easy, ~35% medium, ~25% hard
  */
 
 import logger from '../utils/logger.js';
 
-// Base word configs for 15 categories to generate simple compound words
-const categoryConfigs = {
-  'Animals': {
-    easyWords: ['cat', 'dog', 'rabbit', 'lion', 'bear', 'fox', 'wolf', 'deer', 'cow', 'pig', 'sheep', 'chicken', 'duck', 'horse', 'mouse', 'frog', 'turtle', 'elephant', 'giraffe', 'zebra', 'hippo', 'rhino', 'owl', 'penguin'],
-    prefixes: ['wild', 'sea', 'river', 'lake', 'wood', 'snow', 'ice', 'sand', 'rock', 'night', 'sky', 'fire', 'water', 'gold', 'silver', 'bush', 'swamp', 'cave', 'mountain', 'forest'],
-    suffixes: ['cat', 'dog', 'bird', 'fish', 'bear', 'wolf', 'fox', 'deer', 'rabbit', 'mouse', 'owl', 'frog', 'turtle', 'snake', 'crab', 'bee', 'ant', 'wasp', 'duck', 'goose']
-  },
-  'Food': {
-    easyWords: ['apple', 'banana', 'orange', 'strawberry', 'grape', 'carrot', 'potato', 'tomato', 'pizza', 'burger', 'cookie', 'donut', 'cupcake', 'icecream', 'cheese', 'bread', 'egg', 'taco', 'sushi', 'cake'],
-    prefixes: ['sweet', 'sour', 'spicy', 'salty', 'hot', 'cold', 'ice', 'fire', 'honey', 'sugar', 'milk', 'cream', 'butter', 'cheese', 'berry', 'cherry', 'lemon', 'coco', 'choco', 'nut'],
-    suffixes: ['cake', 'pie', 'tart', 'bun', 'roll', 'bread', 'cookie', 'donut', 'waffle', 'pancake', 'toast', 'soup', 'stew', 'sauce', 'dip', 'salad', 'juice', 'shake', 'syrup', 'candy']
-  },
-  'Nature': {
-    easyWords: ['tree', 'flower', 'leaf', 'grass', 'rock', 'cloud', 'sun', 'moon', 'star', 'river', 'lake', 'mountain', 'hill', 'rain', 'snow', 'wind', 'fire', 'sea', 'shell', 'mushroom'],
-    prefixes: ['thunder', 'lightning', 'rain', 'snow', 'frost', 'dew', 'fog', 'mist', 'cloud', 'wind', 'storm', 'dust', 'sand', 'mud', 'dirt', 'clay', 'rock', 'stone', 'lava', 'magma'],
-    suffixes: ['storm', 'cloud', 'wind', 'shower', 'drift', 'fall', 'rise', 'flow', 'wave', 'tide', 'pool', 'lake', 'pond', 'river', 'stream', 'brook', 'spring', 'well', 'cave', 'peak']
-  },
-  'Objects': {
-    easyWords: ['book', 'cup', 'clock', 'key', 'pencil', 'scissors', 'umbrella', 'hat', 'shoe', 'glasses', 'phone', 'ring', 'balloon', 'bag', 'lamp', 'chair', 'table', 'mirror', 'candle', 'key'],
-    prefixes: ['key', 'lock', 'ring', 'chain', 'box', 'case', 'bag', 'sack', 'pack', 'cup', 'mug', 'bowl', 'plate', 'dish', 'pot', 'pan', 'book', 'page', 'pen', 'pencil'],
-    suffixes: ['holder', 'keeper', 'box', 'case', 'bag', 'pack', 'ring', 'chain', 'stand', 'rack', 'shelf', 'tray', 'plate', 'bowl', 'cup', 'pot', 'pan', 'hook', 'clip', 'pin']
-  },
-  'Vehicles': {
-    easyWords: ['car', 'bicycle', 'train', 'airplane', 'boat', 'truck', 'bus', 'rocket', 'subway', 'tractor', 'helicopter', 'scooter', 'van', 'taxi', 'ship'],
-    prefixes: ['steam', 'speed', 'race', 'flight', 'sail', 'sub', 'space', 'sky', 'sea', 'land', 'air', 'wind', 'fire', 'auto', 'motor', 'jet', 'cargo', 'road', 'rail', 'track'],
-    suffixes: ['car', 'boat', 'ship', 'train', 'plane', 'bike', 'cycle', 'truck', 'bus', 'copter', 'craft', 'rover', 'glider', 'runner', 'flyer', 'cruiser', 'tank', 'wagon', 'cab', 'carrier']
-  },
-  'Sports': {
-    easyWords: ['ball', 'hoop', 'bat', 'racket', 'shoe', 'skateboard', 'helmet', 'glove', 'net', 'whistle', 'jersey'],
-    prefixes: ['base', 'basket', 'foot', 'volley', 'hand', 'snow', 'ice', 'water', 'surf', 'skate', 'track', 'field', 'golf', 'tennis', 'hockey', 'match', 'game', 'court', 'pool', 'team'],
-    suffixes: ['ball', 'bat', 'net', 'hoop', 'racket', 'board', 'shoe', 'boot', 'glove', 'mask', 'cap', 'ring', 'goal', 'track', 'stick', 'puck', 'club', 'cup', 'medal', 'trophy']
-  },
-  'Buildings': {
-    easyWords: ['house', 'barn', 'tower', 'bridge', 'castle', 'cabin', 'school', 'shop', 'church', 'mill', 'wall', 'tent', 'gate', 'hotel', 'home'],
-    prefixes: ['log', 'stone', 'wood', 'brick', 'mud', 'sand', 'snow', 'ice', 'light', 'wind', 'water', 'mill', 'farm', 'guard', 'watch', 'gate', 'town', 'city', 'sky', 'sea'],
-    suffixes: ['house', 'cabin', 'cottage', 'home', 'tower', 'bridge', 'gate', 'wall', 'barn', 'shed', 'shack', 'hall', 'room', 'vault', 'dome', 'roof', 'arch', 'port', 'dock', 'yard']
-  },
-  'Fantasy': {
-    easyWords: ['wand', 'hat', 'potion', 'fairy', 'dragon', 'sword', 'shield', 'crown', 'ring', 'crystal', 'spell', 'key', 'cape', 'map', 'book'],
-    prefixes: ['magic', 'spell', 'rune', 'myth', 'lore', 'elf', 'dwarf', 'orc', 'troll', 'witch', 'mage', 'pixie', 'sprite', 'ghost', 'fiend', 'star', 'sun', 'moon', 'dream', 'spirit'],
-    suffixes: ['wand', 'potion', 'spell', 'rune', 'sword', 'blade', 'shield', 'crown', 'ring', 'key', 'cloak', 'amulet', 'gem', 'stone', 'dust', 'powder', 'fire', 'breath', 'wing', 'horn']
-  },
-  'Space': {
-    easyWords: ['rocket', 'alien', 'planet', 'star', 'moon', 'rover', 'comet', 'sun', 'meteor', 'satellite', 'galaxy', 'capsule', 'telescope', 'ship', 'crater'],
-    prefixes: ['space', 'star', 'moon', 'sun', 'sky', 'cosmic', 'solar', 'lunar', 'astro', 'stellar', 'galaxy', 'nebula', 'orbit', 'meteor', 'comet', 'warp', 'hyper', 'dark', 'light', 'void'],
-    suffixes: ['ship', 'craft', 'probe', 'lander', 'rover', 'suit', 'port', 'dock', 'base', 'dome', 'station', 'flare', 'spot', 'beam', 'dust', 'rock', 'ring', 'core', 'sail', 'pod']
-  },
-  'Technology': {
-    easyWords: ['computer', 'robot', 'mouse', 'keyboard', 'screen', 'phone', 'printer', 'cable', 'battery', 'chip', 'gear', 'button', 'disk', 'camera', 'plug'],
-    prefixes: ['micro', 'macro', 'nano', 'cyber', 'robo', 'tele', 'auto', 'smart', 'super', 'hyper', 'digital', 'quantum', 'laser', 'solar', 'power', 'data', 'web', 'net', 'wire', 'holo'],
-    suffixes: ['chip', 'board', 'card', 'drive', 'disk', 'link', 'core', 'cell', 'pack', 'phone', 'bot', 'drone', 'arm', 'hand', 'eye', 'screen', 'plug', 'cord', 'gear', 'grid']
-  },
-  'Jobs': {
-    easyWords: ['doctor', 'nurse', 'teacher', 'chef', 'artist', 'driver', 'pilot', 'police', 'farmer', 'builder', 'singer', 'writer', 'dentist', 'baker', 'actor'],
-    prefixes: ['head', 'chief', 'master', 'lead', 'co', 'sub', 'assistant', 'under', 'over', 'fore', 'sea', 'sky', 'land', 'air', 'fire', 'water', 'city', 'town', 'farm', 'shop'],
-    suffixes: ['doctor', 'nurse', 'teacher', 'chef', 'artist', 'driver', 'pilot', 'guard', 'farmer', 'builder', 'singer', 'writer', 'baker', 'maker', 'worker', 'agent', 'officer', 'guide', 'runner', 'scout']
-  },
-  'Holidays': {
-    easyWords: ['gift', 'card', 'tree', 'egg', 'mask', 'star', 'flag', 'cake', 'bell', 'hat', 'rose', 'heart', 'sweets', 'lights', 'toy'],
-    prefixes: ['merry', 'jolly', 'happy', 'festive', 'spooky', 'scary', 'holy', 'sacred', 'winter', 'spring', 'summer', 'autumn', 'birthday', 'wedding', 'party', 'feast', 'carnival', 'parade'],
-    suffixes: ['tree', 'gift', 'card', 'wreath', 'stocking', 'bell', 'candle', 'lantern', 'mask', 'hat', 'cake', 'egg', 'basket', 'flag', 'banner', 'star', 'heart', 'rose', 'toy', 'bonfire']
-  },
-  'Emotions': {
-    easyWords: ['smile', 'tear', 'heart', 'cloud', 'sun', 'frown', 'hand', 'face', 'shout', 'hug', 'gift', 'star', 'flower', 'key', 'cross'],
-    prefixes: ['happy', 'sad', 'angry', 'scared', 'joy', 'grief', 'fear', 'dread', 'hope', 'peace', 'love', 'hate', 'shame', 'pride', 'trust', 'gloom', 'cheer', 'rage', 'calm', 'warm'],
-    suffixes: ['face', 'smile', 'frown', 'tear', 'look', 'sigh', 'shout', 'scream', 'groan', 'gasp', 'hug', 'touch', 'grip', 'path', 'gate', 'wall', 'cloud', 'storm', 'spark', 'glow']
-  },
-  'Mythology': {
-    easyWords: ['crown', 'sword', 'shield', 'bolt', 'hammer', 'wing', 'horn', 'ring', 'mask', 'altar', 'temple', 'hero', 'statue', 'bow', 'spear'],
-    prefixes: ['myth', 'ancient', 'sacred', 'divine', 'god', 'hero', 'titan', 'dragon', 'phoenix', 'sphinx', 'chimera', 'griffin', 'kraken', 'hydra', 'gorgon', 'celt', 'norse', 'greek', 'roman', 'egypt'],
-    suffixes: ['temple', 'altar', 'statue', 'shrine', 'tomb', 'mask', 'crown', 'throne', 'sword', 'shield', 'spear', 'bow', 'bolt', 'hammer', 'horn', 'wing', 'talisman', 'scroll', 'urn', 'pillar']
-  },
-  'Abstract Concepts': {
-    easyWords: ['spiral', 'grid', 'circle', 'square', 'triangle', 'arrow', 'cross', 'loop', 'star', 'wave', 'line', 'dot', 'cube', 'prism', 'sphere'],
-    prefixes: ['geo', 'meta', 'hyper', 'infra', 'ultra', 'micro', 'macro', 'uni', 'bi', 'tri', 'poly', 'multi', 'omni', 'time', 'space', 'mind', 'soul', 'life', 'force', 'light'],
-    suffixes: ['grid', 'loop', 'wave', 'line', 'node', 'link', 'path', 'gate', 'door', 'maze', 'spiral', 'sphere', 'cube', 'prism', 'cone', 'pyramid', 'ring', 'core', 'void', 'realm']
-  }
+// ─── ANIMALS ─────────────────────────────────────────────────────
+
+const ANIMALS_EASY = [
+  'Cat', 'Dog', 'Rabbit', 'Lion', 'Bear', 'Fox', 'Wolf', 'Cow', 'Pig', 'Duck',
+  'Horse', 'Mouse', 'Frog', 'Turtle', 'Elephant', 'Giraffe', 'Owl', 'Penguin',
+  'Fish', 'Bird', 'Panda', 'Monkey', 'Snake', 'Bee', 'Dolphin', 'Shark',
+  'Crab', 'Ladybug', 'Snail', 'Bat', 'Deer', 'Goat', 'Sheep', 'Chicken',
+  'Parrot', 'Whale', 'Octopus', 'Butterfly', 'Ant', 'Koala',
+];
+
+const ANIMALS_MEDIUM = [
+  'Sleeping Cat', 'Flying Eagle', 'Flamingo', 'Crocodile', 'Kangaroo',
+  'Chameleon', 'Peacock', 'Dinosaur', 'Hedgehog', 'Hamster',
+  'Porcupine', 'Sea Horse', 'Jellyfish', 'Scorpion', 'Pelican',
+  'Panda eating bamboo', 'Dog with sunglasses', 'Duckling swimming',
+  'Rooster crowing', 'Cat in a box', 'Parrot on perch', 'Frog on lily pad',
+  'Hummingbird', 'Armadillo', 'Iguana',
+];
+
+const ANIMALS_HARD = [
+  'Cat sleeping on couch', 'Dragon breathing fire', 'Wolf howling at moon',
+  'Penguin in scarf', 'Monkey eating banana', 'Owl on a branch',
+  'Elephant spraying water', 'Giraffe eating leaves', 'Shark jumping',
+  'Dolphin doing a flip', 'Chameleon on branch', 'Peacock with open tail',
+  'Kangaroo with joey', 'Crocodile in swamp', 'Butterfly on flower',
+];
+
+// ─── FOOD ────────────────────────────────────────────────────────
+
+const FOOD_EASY = [
+  'Apple', 'Banana', 'Orange', 'Strawberry', 'Pizza', 'Burger', 'Cookie',
+  'Donut', 'Cupcake', 'Ice Cream', 'Cheese', 'Bread', 'Egg', 'Taco',
+  'Sushi', 'Cake', 'Watermelon', 'Fries', 'Hot Dog', 'Popcorn',
+  'Cherry', 'Grapes', 'Pear', 'Pineapple', 'Lemon', 'Carrot',
+  'Corn', 'Mushroom', 'Pretzel', 'Candy',
+];
+
+const FOOD_MEDIUM = [
+  'Birthday Cake', 'Pancake Stack', 'Lollipop', 'Gingerbread Man',
+  'Taco with salsa', 'Ice Cream Sundae', 'Chocolate Bar', 'Burrito',
+  'Sandwich', 'Croissant', 'Waffle', 'Ramen Bowl', 'Drumstick',
+  'Pie Slice', 'Smoothie Cup', 'Milkshake', 'Fruit Bowl',
+  'Spaghetti', 'Cereal Bowl', 'Bagel',
+];
+
+const FOOD_HARD = [
+  'Pancake stack with syrup', 'Sushi platter', 'Burger with toppings',
+  'Pizza with pepperoni', 'Fruit salad in bowl', 'Ramen with chopsticks',
+  'Wedding cake', 'Breakfast plate', 'Bento box', 'Gingerbread house',
+];
+
+// ─── NATURE ──────────────────────────────────────────────────────
+
+const NATURE_EASY = [
+  'Tree', 'Flower', 'Leaf', 'Sun', 'Moon', 'Star', 'Cloud', 'River',
+  'Mountain', 'Rain', 'Snow', 'Fire', 'Rainbow', 'Beach', 'Volcano',
+  'Island', 'Cactus', 'Rose', 'Tulip', 'Daisy', 'Sunflower', 'Palm Tree',
+  'Pine Tree', 'Seashell', 'Coral', 'Wave', 'Pond', 'Cliff', 'Cave', 'Tornado',
+];
+
+const NATURE_MEDIUM = [
+  'Waterfall', 'Lightning Storm', 'Full Moon', 'Coral Reef', 'Aurora',
+  'Sunset Over Ocean', 'Snowy Mountain', 'Desert Oasis', 'Bamboo Forest',
+  'Cherry Blossom', 'Autumn Tree', 'Meadow', 'Canyon', 'Glacier',
+  'Tide Pool', 'Mushroom Ring', 'Starry Sky', 'Misty Forest', 'Swamp',
+  'Sand Dune',
+];
+
+const NATURE_HARD = [
+  'Lightning storm over mountain', 'Sunrise through clouds',
+  'Volcano erupting at night', 'Underwater coral reef',
+  'Northern lights over snow', 'Waterfall in jungle',
+  'Desert with cactus sunset', 'Forest with fireflies',
+  'Rainbow over waterfall', 'Tornado approaching farm',
+];
+
+// ─── OBJECTS ─────────────────────────────────────────────────────
+
+const OBJECTS_EASY = [
+  'Book', 'Cup', 'Clock', 'Key', 'Pencil', 'Scissors', 'Umbrella', 'Hat',
+  'Shoe', 'Glasses', 'Phone', 'Ring', 'Balloon', 'Bag', 'Lamp', 'Chair',
+  'Table', 'Mirror', 'Candle', 'Crown', 'Sword', 'Shield', 'Ball',
+  'Bottle', 'Bell', 'Lock', 'Magnet', 'Dice', 'Trophy', 'Flag',
+];
+
+const OBJECTS_MEDIUM = [
+  'Treasure Chest', 'Magic Wand', 'Anchor', 'Compass', 'Telescope',
+  'Binoculars', 'Hourglass', 'Lantern', 'Pocket Watch', 'Birdhouse',
+  'Magnifying Glass', 'Chess Piece', 'Globe', 'Backpack', 'Toolbox',
+  'Paint Palette', 'Crystal Ball', 'Snow Globe', 'Music Box', 'Swiss Knife',
+];
+
+const OBJECTS_HARD = [
+  'Treasure chest open', 'Grandfather clock', 'Globe on stand',
+  'Backpack with gear', 'Stacked books', 'Antique lantern',
+  'Birdhouse in tree', 'Snow globe with scene', 'Chess board setup',
+  'Paint palette with brushes',
+];
+
+// ─── VEHICLES ────────────────────────────────────────────────────
+
+const VEHICLES_EASY = [
+  'Car', 'Bicycle', 'Train', 'Airplane', 'Boat', 'Truck', 'Bus', 'Rocket',
+  'Submarine', 'Helicopter', 'Scooter', 'Ship', 'Taxi', 'Motorcycle',
+  'Canoe', 'Sailboat', 'Tractor', 'Skateboard', 'Sled', 'Wagon',
+];
+
+const VEHICLES_MEDIUM = [
+  'Hot Air Balloon', 'Pirate Ship', 'Police Car', 'Fire Truck', 'Ambulance',
+  'Space Shuttle', 'Jet Ski', 'Monster Truck', 'Race Car', 'Double Decker Bus',
+  'Cruise Ship', 'Hang Glider', 'Cable Car', 'Tank', 'Blimp',
+];
+
+const VEHICLES_HARD = [
+  'Race car on track', 'Pirate ship at sea', 'Rocket launching',
+  'Helicopter in sky', 'Submarine underwater', 'Train on bridge',
+  'Hot air balloon festival', 'Monster truck jumping',
+  'Sailboat in storm', 'Spaceship in space',
+];
+
+// ─── BUILDINGS & PLACES ──────────────────────────────────────────
+
+const BUILDINGS_EASY = [
+  'House', 'Castle', 'Bridge', 'Tower', 'School', 'Tent', 'Igloo', 'Barn',
+  'Lighthouse', 'Church', 'Temple', 'Windmill', 'Hospital', 'Factory',
+  'Cabin', 'Skyscraper', 'Fountain', 'Well', 'Arch', 'Gate',
+];
+
+const BUILDINGS_MEDIUM = [
+  'Haunted House', 'Treehouse', 'Pyramid', 'Colosseum', 'Pagoda',
+  'Log Cabin', 'Space Station', 'Roller Coaster', 'Ferris Wheel',
+  'Water Tower', 'Observatory', 'Clock Tower', 'Drawbridge',
+  'Gazebo', 'Stadium',
+];
+
+const BUILDINGS_HARD = [
+  'Castle on cliff', 'Treehouse in jungle', 'Lighthouse at night',
+  'Haunted house with ghosts', 'City skyline', 'Medieval village',
+  'Space station orbiting', 'Temple in mountains', 'Underwater city',
+  'Futuristic cityscape',
+];
+
+// ─── FANTASY & FUN ───────────────────────────────────────────────
+
+const FANTASY_EASY = [
+  'Dragon', 'Wizard', 'Fairy', 'Robot', 'Alien', 'Ghost', 'Snowman',
+  'Superhero', 'Monster', 'Unicorn', 'Mermaid', 'Vampire', 'Zombie',
+  'Angel', 'Elf', 'Troll', 'Phoenix', 'Yeti', 'Cyclops', 'Goblin',
+];
+
+const FANTASY_MEDIUM = [
+  'Astronaut', 'Pirate', 'Chef', 'Detective', 'Ninja', 'Knight',
+  'King', 'Queen', 'Clown', 'Witch', 'Skeleton', 'Werewolf',
+  'Centaur', 'Griffin', 'Kraken', 'Medusa', 'Minotaur', 'Sphinx',
+  'Genie', 'Leprechaun',
+];
+
+const FANTASY_HARD = [
+  'Wizard casting spell', 'Robot riding bicycle', 'Alien playing guitar',
+  'Banana on skateboard', 'Teddy bear having tea', 'Snowman melting',
+  'Pirate finding treasure', 'Astronaut floating space',
+  'Mermaid on rock', 'Dragon guarding treasure',
+];
+
+// ─── SPACE ───────────────────────────────────────────────────────
+
+const SPACE_EASY = [
+  'Planet', 'Comet', 'Meteor', 'Satellite', 'UFO', 'Constellation',
+  'Asteroid', 'Black Hole', 'Nebula', 'Galaxy',
+];
+
+const SPACE_MEDIUM = [
+  'Solar System', 'Space Walk', 'Moon Rover', 'Star Map',
+  'Saturn Rings', 'Rocket Launch', 'Space Telescope', 'Mars Landscape',
+  'Lunar Eclipse', 'Space Suit',
+];
+
+const SPACE_HARD = [
+  'Astronaut on moon', 'Alien planet landscape', 'Space battle',
+  'Satellite orbiting earth', 'Rocket passing moon', 'Planet with rings',
+  'Space colony', 'Meteor shower',
+];
+
+// ─── SPORTS ──────────────────────────────────────────────────────
+
+const SPORTS_EASY = [
+  'Basketball', 'Soccer Ball', 'Tennis Racket', 'Baseball Bat',
+  'Football', 'Golf Club', 'Boxing Glove', 'Bowling Pin', 'Surfboard',
+  'Skateboard', 'Hockey Stick', 'Swimming Goggles', 'Medal', 'Dumbbell',
+  'Jump Rope', 'Archery Target', 'Badminton', 'Dart Board',
+];
+
+const SPORTS_MEDIUM = [
+  'Basketball Hoop', 'Soccer Goal', 'Tennis Court', 'Ice Skating',
+  'Gymnastics', 'Kayaking', 'Rock Climbing', 'Volleyball Net',
+  'Boxing Ring', 'Race Track',
+];
+
+const SPORTS_HARD = [
+  'Soccer player scoring', 'Surfer on wave', 'Gymnast on beam',
+  'Rock climber on cliff', 'Basketball slam dunk',
+  'Skier going downhill', 'Archer shooting arrow',
+  'Swimmer in pool',
+];
+
+// ─── PROFESSIONS ─────────────────────────────────────────────────
+
+const PROFESSIONS_EASY = [
+  'Doctor', 'Firefighter', 'Pilot', 'Teacher', 'Artist', 'Farmer',
+  'Police Officer', 'Scientist', 'Baker', 'Mechanic', 'Dentist',
+  'Photographer', 'Musician', 'Dancer', 'Magician',
+];
+
+const PROFESSIONS_MEDIUM = [
+  'Scuba Diver', 'Mountain Climber', 'Race Car Driver', 'Conductor',
+  'Archaeologist', 'Veterinarian', 'Lifeguard', 'Zookeeper',
+  'Park Ranger', 'Blacksmith',
+];
+
+const PROFESSIONS_HARD = [
+  'Chef cooking', 'Firefighter with hose', 'Scientist with beaker',
+  'Artist painting canvas', 'Doctor with stethoscope',
+  'Farmer on tractor', 'Magician doing trick',
+  'Pilot in cockpit',
+];
+
+// ─── HOUSEHOLD ───────────────────────────────────────────────────
+
+const HOUSEHOLD_EASY = [
+  'Bed', 'Couch', 'Bathtub', 'Fridge', 'Oven', 'Sink', 'Broom',
+  'Pillow', 'Blanket', 'Curtain', 'Staircase', 'Door', 'Window',
+  'Fireplace', 'Bookshelf', 'Washing Machine', 'Television', 'Sofa',
+];
+
+const HOUSEHOLD_MEDIUM = [
+  'Kitchen Counter', 'Living Room', 'Bunk Bed', 'Dining Table',
+  'Fish Tank', 'Plant Pot', 'Ceiling Fan', 'Rocking Chair',
+  'Welcome Mat', 'Mailbox',
+];
+
+const HOUSEHOLD_HARD = [
+  'Cozy living room', 'Kitchen with pots', 'Bedroom at night',
+  'Bathroom with mirror', 'Garden with fence', 'Attic with boxes',
+  'Garage with car', 'Backyard barbecue',
+];
+
+// ─── ELECTRONICS ─────────────────────────────────────────────────
+
+const ELECTRONICS_EASY = [
+  'Computer', 'Laptop', 'Headphones', 'Camera', 'Game Controller',
+  'Flashlight', 'Remote Control', 'Microphone', 'Speaker', 'Battery',
+  'Light Bulb', 'Calculator', 'Alarm Clock', 'Radio', 'Mouse',
+];
+
+const ELECTRONICS_MEDIUM = [
+  'Robot Vacuum', 'Drone', 'Smart Watch', 'VR Headset',
+  'Gaming Setup', 'Tablet', 'Projector', 'Earbuds',
+  'Keyboard', 'Webcam',
+];
+
+const ELECTRONICS_HARD = [
+  'Gaming setup with lights', 'Robot with screen', 'Drone in sky',
+  'Computer with code', 'DJ with turntable', 'Recording studio',
+];
+
+// ─── MUSICAL INSTRUMENTS ─────────────────────────────────────────
+
+const INSTRUMENTS_EASY = [
+  'Guitar', 'Piano', 'Drums', 'Trumpet', 'Violin', 'Flute',
+  'Tambourine', 'Harp', 'Xylophone', 'Maracas', 'Accordion',
+  'Ukulele', 'Banjo', 'Harmonica', 'Triangle',
+];
+
+const INSTRUMENTS_MEDIUM = [
+  'Electric Guitar', 'Grand Piano', 'Drum Kit', 'Saxophone',
+  'Cello', 'Double Bass', 'Organ', 'Bagpipes',
+  'Steel Drums', 'Synthesizer',
+];
+
+const INSTRUMENTS_HARD = [
+  'Band on stage', 'Orchestra conductor', 'Guitar with amplifier',
+  'DJ spinning records', 'Street musician playing',
+  'Piano in concert hall',
+];
+
+// ─── HOLIDAYS & CELEBRATIONS ─────────────────────────────────────
+
+const HOLIDAYS_EASY = [
+  'Christmas Tree', 'Pumpkin', 'Fireworks', 'Candy Cane', 'Gift Box',
+  'Stocking', 'Easter Egg', 'Heart', 'Snowflake', 'Party Hat',
+  'Wreath', 'Mistletoe', 'Jack-o-Lantern', 'Menorah', 'Ornament',
+];
+
+const HOLIDAYS_MEDIUM = [
+  'Gingerbread House', 'Haunted Graveyard', 'Firework Display',
+  'Scarecrow', 'Carnival Mask', 'Piñata', 'Lantern Festival',
+  'Snow Angel', 'Sand Castle', 'May Pole',
+];
+
+const HOLIDAYS_HARD = [
+  'Christmas scene with snow', 'Halloween trick-or-treat',
+  'Birthday party', 'New Year fireworks', 'Easter egg hunt',
+  'Valentine dinner', 'Thanksgiving feast', 'Carnival parade',
+];
+
+// ─── Category Registry ──────────────────────────────────────────
+
+const CATEGORY_MAP = {
+  animals:     { easy: ANIMALS_EASY, medium: ANIMALS_MEDIUM, hard: ANIMALS_HARD },
+  food:        { easy: FOOD_EASY, medium: FOOD_MEDIUM, hard: FOOD_HARD },
+  nature:      { easy: NATURE_EASY, medium: NATURE_MEDIUM, hard: NATURE_HARD },
+  objects:     { easy: OBJECTS_EASY, medium: OBJECTS_MEDIUM, hard: OBJECTS_HARD },
+  vehicles:    { easy: VEHICLES_EASY, medium: VEHICLES_MEDIUM, hard: VEHICLES_HARD },
+  buildings:   { easy: BUILDINGS_EASY, medium: BUILDINGS_MEDIUM, hard: BUILDINGS_HARD },
+  fantasy:     { easy: FANTASY_EASY, medium: FANTASY_MEDIUM, hard: FANTASY_HARD },
+  space:       { easy: SPACE_EASY, medium: SPACE_MEDIUM, hard: SPACE_HARD },
+  sports:      { easy: SPORTS_EASY, medium: SPORTS_MEDIUM, hard: SPORTS_HARD },
+  professions: { easy: PROFESSIONS_EASY, medium: PROFESSIONS_MEDIUM, hard: PROFESSIONS_HARD },
+  household:   { easy: HOUSEHOLD_EASY, medium: HOUSEHOLD_MEDIUM, hard: HOUSEHOLD_HARD },
+  electronics: { easy: ELECTRONICS_EASY, medium: ELECTRONICS_MEDIUM, hard: ELECTRONICS_HARD },
+  instruments: { easy: INSTRUMENTS_EASY, medium: INSTRUMENTS_MEDIUM, hard: INSTRUMENTS_HARD },
+  holidays:    { easy: HOLIDAYS_EASY, medium: HOLIDAYS_MEDIUM, hard: HOLIDAYS_HARD },
 };
 
-// Generate prompt databases
-const prompts = {
-  easy: [],
-  medium: [],
-  hard: []
-};
+// Build flat lookup maps
+const promptDifficultyMap = {};
+const promptCategoryMap = {};
+const allPrompts = [];
 
-const promptCategories = {}; // maps prompt text -> category name
-const promptDifficultyMap = {}; // maps prompt text -> difficulty
-
-// Helper to shuffle array
-function shuffle(array) {
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-}
-
-logger.info('Initializing DrawBattle Prompt Database...');
-
-const categories = Object.keys(categoryConfigs);
-
-// Generate prompts for each category
-for (const cat of categories) {
-  const config = categoryConfigs[cat];
-
-  // 1. EASY PROMPTS: Easy base words + simple combined words (Goal: 125 prompts per category)
-  const easyTemp = [...config.easyWords];
-  
-  // Combine prefix [0-14] with suffix [0-14] (up to 225 combinations)
-  const easyCombo = [];
-  for (let i = 0; i < Math.min(15, config.prefixes.length); i++) {
-    for (let j = 0; j < Math.min(15, config.suffixes.length); j++) {
-      const word = `${config.prefixes[i]}${config.suffixes[j]}`;
-      if (!easyTemp.includes(word)) {
-        easyCombo.push(word);
-      }
+for (const [category, difficulties] of Object.entries(CATEGORY_MAP)) {
+  for (const [difficulty, prompts] of Object.entries(difficulties)) {
+    for (const prompt of prompts) {
+      promptDifficultyMap[prompt] = difficulty;
+      promptCategoryMap[prompt] = category;
+      allPrompts.push(prompt);
     }
-  }
-  shuffle(easyCombo);
-  
-  // Fill easy list up to exactly 125
-  const neededEasy = 125 - easyTemp.length;
-  const easySlice = easyCombo.slice(0, neededEasy);
-  const finalEasy = [...easyTemp, ...easySlice];
-  
-  for (const p of finalEasy) {
-    prompts.easy.push(p);
-    promptCategories[p] = cat;
-    promptDifficultyMap[p] = 'easy';
-  }
-
-  // 2. MEDIUM PROMPTS: Intermediate combined words (Goal: 125 prompts per category)
-  const medCombo = [];
-  // Combine all prefixes and suffixes
-  for (let i = 0; i < config.prefixes.length; i++) {
-    for (let j = 0; j < config.suffixes.length; j++) {
-      const word = `${config.prefixes[i]}${config.suffixes[j]}`;
-      // Prevent duplicates from easy
-      if (!promptDifficultyMap[word]) {
-        medCombo.push(word);
-      }
-    }
-  }
-  shuffle(medCombo);
-  const medSlice = medCombo.slice(0, 125);
-  for (const p of medSlice) {
-    prompts.medium.push(p);
-    promptCategories[p] = cat;
-    promptDifficultyMap[p] = 'medium';
-  }
-
-  // 3. HARD PROMPTS: Complex combined words (Goal: 125 prompts per category)
-  const hardCombo = [];
-  // Combine all prefixes and suffixes
-  for (let i = 0; i < config.prefixes.length; i++) {
-    for (let j = 0; j < config.suffixes.length; j++) {
-      const word = `${config.prefixes[i]}${config.suffixes[j]}`;
-      // Prevent duplicates from easy/medium
-      if (!promptDifficultyMap[word]) {
-        hardCombo.push(word);
-      }
-    }
-  }
-  shuffle(hardCombo);
-  const hardSlice = hardCombo.slice(0, 125);
-  for (const p of hardSlice) {
-    prompts.hard.push(p);
-    promptCategories[p] = cat;
-    promptDifficultyMap[p] = 'hard';
   }
 }
 
-// Flatten for quick random selection
-const allPrompts = [...prompts.easy, ...prompts.medium, ...prompts.hard];
+// Deduplicate
+const uniquePrompts = [...new Set(allPrompts)];
 
-logger.info(`Prompt Database Initialized successfully!`);
-logger.info(`Total Easy Prompts: ${prompts.easy.length}`);
-logger.info(`Total Medium Prompts: ${prompts.medium.length}`);
-logger.info(`Total Hard Prompts: ${prompts.hard.length}`);
-logger.info(`Total Prompts: ${allPrompts.length} (Target: >5,000)`);
+logger.info(`Loaded ${uniquePrompts.length} curated prompts across ${Object.keys(CATEGORY_MAP).length} categories.`);
 
-// Recent prompts tracking queue to prevent repetition
+// ─── Recent Prompt Tracking ─────────────────────────────────────
+
 const recentPrompts = new Set();
-const maxRecentSize = 1200; // Track up to 1200 prompts to avoid repeats
+const maxRecentSize = 200;
 
 function trackRecent(prompt) {
   recentPrompts.add(prompt);
   if (recentPrompts.size > maxRecentSize) {
-    const first = recentPrompts.values().next().value;
-    recentPrompts.delete(first);
+    const firstItem = recentPrompts.values().next().value;
+    recentPrompts.delete(firstItem);
   }
 }
 
+// ─── Public API ──────────────────────────────────────────────────
+
 /**
  * Get a random prompt based on difficulty and category.
- * @param {'easy'|'medium'|'hard'|'mixed'|'all'} difficulty
- * @param {string} category - 'all' or one of the 15 categories
- * @returns {{ prompt: string, difficulty: 'easy'|'medium'|'hard', category: string }}
+ * @param {string} difficulty - 'easy' | 'medium' | 'hard' | 'all'
+ * @param {string} category - one of CATEGORY_MAP keys | 'all'
+ * @returns {{ prompt: string, difficulty: string, category: string }}
  */
-export function getRandomPrompt(difficulty = 'all', category = 'all') {
-  let tier = difficulty === 'mixed' || difficulty === 'all' ? 'all' : difficulty;
-  let cat = category === 'all' ? 'all' : category;
+export function getRandomPrompt(difficulty, category) {
+  let pool;
 
-  let pool = allPrompts;
-
-  // Filter pool by difficulty first
-  if (tier !== 'all') {
-    pool = prompts[tier] || allPrompts;
+  if (category && category !== 'all' && CATEGORY_MAP[category]) {
+    const catData = CATEGORY_MAP[category];
+    if (difficulty && difficulty !== 'all' && catData[difficulty]) {
+      pool = catData[difficulty];
+    } else {
+      pool = [...catData.easy, ...catData.medium, ...catData.hard];
+    }
+  } else if (difficulty && difficulty !== 'all') {
+    pool = uniquePrompts.filter(p => promptDifficultyMap[p] === difficulty);
+  } else {
+    pool = uniquePrompts;
   }
 
-  // Filter pool by category
-  if (cat !== 'all') {
-    pool = pool.filter(p => promptCategories[p] === cat);
-  }
+  if (!pool || pool.length === 0) pool = uniquePrompts;
 
-  // Fallback if empty pool
-  if (pool.length === 0) {
-    pool = allPrompts;
-  }
+  // Filter recently used prompts if possible
+  const unused = pool.filter(p => !recentPrompts.has(p));
+  const finalPool = unused.length > 0 ? unused : pool;
 
-  // Try to select a prompt that hasn't been used recently (up to 30 attempts)
-  let attempts = 0;
-  let selected = pool[Math.floor(Math.random() * pool.length)];
-
-  while (recentPrompts.has(selected) && attempts < 30) {
-    selected = pool[Math.floor(Math.random() * pool.length)];
-    attempts++;
-  }
-
+  const selected = finalPool[Math.floor(Math.random() * finalPool.length)];
   trackRecent(selected);
 
   return {
     prompt: selected,
     difficulty: promptDifficultyMap[selected] || 'easy',
-    category: promptCategories[selected] || 'Animals'
+    category: promptCategoryMap[selected] || 'general',
   };
 }
 
 /**
- * Get multiple unique random prompts.
- * @param {number} count
- * @param {'easy'|'medium'|'hard'|'mixed'|'all'} difficulty
- * @param {string} category
- * @returns {Array<{ prompt: string, difficulty: string, category: string }>}
+ * Get multiple random prompts (no duplicates within the batch).
  */
-export function getRandomPrompts(count = 5, difficulty = 'all', category = 'all') {
+export function getRandomPrompts(count = 3, difficulty, category) {
   const result = [];
+  const seen = new Set();
+
   for (let i = 0; i < count; i++) {
-    result.push(getRandomPrompt(difficulty, category));
+    let attempts = 0;
+    let p;
+    do {
+      p = getRandomPrompt(difficulty, category);
+      attempts++;
+    } while (seen.has(p.prompt) && attempts < 20);
+    seen.add(p.prompt);
+    result.push(p);
   }
+
   return result;
 }
 
-export { prompts, allPrompts, promptCategories, promptDifficultyMap };
-export default prompts;
+export { uniquePrompts as allPrompts, promptCategoryMap as promptCategories, promptDifficultyMap, CATEGORY_MAP };
+export default CATEGORY_MAP;

@@ -13,7 +13,7 @@ import 'providers/game_provider.dart';
 import 'providers/drawing_provider.dart';
 import 'providers/socket_provider.dart';
 import 'providers/theme_provider.dart';
-import 'providers/progression_provider.dart';
+import 'providers/friends_provider.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -24,6 +24,8 @@ import 'screens/game/drawing_screen.dart';
 import 'screens/game/results_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/friends/friends_screen.dart';
+import 'screens/game/single_player_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +44,7 @@ class DrawBattleApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => ProgressionProvider()),
+        ChangeNotifierProvider(create: (_) => FriendsProvider()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => DrawingProvider()),
         ChangeNotifierProvider(create: (_) {
@@ -60,15 +62,47 @@ class DrawBattleApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: themeProvider.sdkThemeMode,
             initialRoute: '/',
-            routes: {
-              '/': (context) => const SplashScreen(),
-              '/login': (context) => const LoginScreen(),
-              '/home': (context) => const HomeScreen(),
-              '/lobby': (context) => const LobbyScreen(),
-              '/drawing': (context) => const DrawingScreen(),
-              '/results': (context) => const ResultsScreen(),
-              '/profile': (context) => const ProfileScreen(),
-              '/settings': (context) => const SettingsScreen(),
+            onGenerateRoute: (settings) {
+              final routes = <String, WidgetBuilder>{
+                '/': (context) => const SplashScreen(),
+                '/login': (context) => const LoginScreen(),
+                '/home': (context) => const HomeScreen(),
+                '/lobby': (context) => const LobbyScreen(),
+                '/drawing': (context) => const DrawingScreen(),
+                '/results': (context) => const ResultsScreen(),
+                '/profile': (context) => const ProfileScreen(),
+                '/settings': (context) => const SettingsScreen(),
+                '/friends': (context) => const FriendsScreen(),
+                '/single_player': (context) => const SinglePlayerScreen(),
+              };
+
+              final builder = routes[settings.name];
+              if (builder != null) {
+                return PageRouteBuilder(
+                  settings: settings,
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      builder(context),
+                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                    final curve = CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    );
+                    return FadeTransition(
+                      opacity: curve,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.05, 0),
+                          end: Offset.zero,
+                        ).animate(curve),
+                        child: child,
+                      ),
+                    );
+                  },
+                  transitionDuration: const Duration(milliseconds: 300),
+                );
+              }
+
+              return null;
             },
           );
         },

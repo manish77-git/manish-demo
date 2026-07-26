@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
-import '../../providers/theme_provider.dart';
+import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../widgets/player_avatar.dart';
 import '../../widgets/chat_panel.dart';
@@ -22,25 +22,25 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   final List<String> _categories = [
     'all',
-    'Animals',
-    'Food',
-    'Nature',
-    'Objects',
-    'Vehicles',
-    'Sports',
-    'Buildings',
-    'Fantasy',
-    'Space',
-    'Technology',
-    'Jobs',
-    'Holidays',
-    'Emotions',
-    'Mythology',
-    'Abstract Concepts'
+    'animals',
+    'food',
+    'nature',
+    'objects',
+    'vehicles',
+    'buildings',
+    'fantasy',
+    'space',
+    'sports',
+    'professions',
+    'household',
+    'electronics',
+    'instruments',
+    'holidays',
   ];
 
   final List<String> _difficulties = ['all', 'easy', 'medium', 'hard'];
   final List<int> _durations = [30, 60, 80, 120];
+  final List<int> _roundOptions = [1, 3, 5, 10];
 
   @override
   void didChangeDependencies() {
@@ -56,7 +56,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final socketProvider = context.read<SocketProvider>();
-      socketProvider.onMatchStarted = (prompt, duration) {
+      socketProvider.onMatchStarted = (prompt, duration, currentRound, totalRounds) {
         if (mounted) {
           Navigator.pushReplacementNamed(
             context,
@@ -65,6 +65,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
               'prompt': prompt,
               'duration': duration,
               'isMultiplayer': true,
+              'currentRound': currentRound,
+              'totalRounds': totalRounds,
             },
           );
         }
@@ -123,6 +125,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
       difficulty: settings['difficulty'] ?? 'all',
       category: settings['category'] ?? 'all',
       duration: settings['duration'] ?? 80,
+      rounds: settings['rounds'] ?? 3,
     );
   }
 
@@ -140,6 +143,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     required Color textColor,
     required Color borderColor,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -151,11 +155,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor, width: 2),
+            border: Border.all(color: borderColor, width: 1.5),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<T>(
-              value: value,
+              value: items.contains(value) ? value : items.first,
               items: items.map((item) {
                 return DropdownMenuItem<T>(
                   value: item,
@@ -166,9 +170,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 );
               }).toList(),
               onChanged: onChanged,
-              dropdownColor: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF1E1A33)
-                  : Colors.white,
+              dropdownColor: isDark ? AppColors.cardDark : AppColors.cardLight,
             ),
           ),
         ),
@@ -193,102 +195,89 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final allReady = otherPlayers.isNotEmpty && otherPlayers.every((p) => p['isReady'] == true || p['isSpectator'] == true);
     final canStart = players.length >= 2 && allReady;
 
-    final isDark = context.watch<ThemeProvider>().isDarkMode;
-    final primaryColor = isDark ? AppTheme.primaryDark : AppTheme.primaryLight;
-    final cardBg = isDark ? AppTheme.cardDark : AppTheme.cardLight;
-    final borderColor = isDark ? AppTheme.borderDark : AppTheme.borderLight;
-    final textMuted = isDark ? AppTheme.textSecDark : AppTheme.textSecLight;
-    final textColor = isDark ? AppTheme.textDark : AppTheme.textLight;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.primaryDark : AppColors.primaryLight;
+    final cardBg = isDark ? AppColors.cardDark : AppColors.cardLight;
+    final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
+    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(LucideIcons.arrowLeft, size: 20, color: textColor),
           onPressed: _leaveRoom,
         ),
-        title: Text('Waiting Arena', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+        title: Text('Lobby', style: TextStyle(color: textColor, fontWeight: FontWeight.w800)),
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: SketchpadBackgroundPainter(
-                gridColor: textColor,
-                isDark: isDark,
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(AppTheme.space24),
-              child: isDesktop
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: _buildMainPanel(
-                            roomCode: roomCode,
-                            players: players,
-                            canStart: canStart,
-                            isHost: isHost,
-                            isMyReady: isMyReady,
-                            isSpectator: isSpectator,
-                            allReady: allReady,
-                            myUid: myUid,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            primaryColor: primaryColor,
-                            textMuted: textMuted,
-                            textColor: textColor,
-                            isDark: isDark,
-                            socketProvider: socketProvider,
-                          ),
-                        ),
-                        const SizedBox(width: AppTheme.space24),
-                        Expanded(
-                          flex: 1,
-                          child: ChatPanel(
-                            messages: _chatMessages,
-                            onSendMessage: _handleSendMessage,
-                            onSendReaction: _handleSendReaction,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        _buildMainPanel(
-                          roomCode: roomCode,
-                          players: players,
-                          canStart: canStart,
-                          isHost: isHost,
-                          isMyReady: isMyReady,
-                          isSpectator: isSpectator,
-                          allReady: allReady,
-                          myUid: myUid,
-                          cardBg: cardBg,
-                          borderColor: borderColor,
-                          primaryColor: primaryColor,
-                          textMuted: textMuted,
-                          textColor: textColor,
-                          isDark: isDark,
-                          socketProvider: socketProvider,
-                        ),
-                        const SizedBox(height: AppTheme.space24),
-                        Expanded(
-                          child: ChatPanel(
-                            messages: _chatMessages,
-                            onSendMessage: _handleSendMessage,
-                            onSendReaction: _handleSendReaction,
-                          ),
-                        ),
-                      ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppTheme.space24),
+          child: isDesktop
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: _buildMainPanel(
+                        roomCode: roomCode,
+                        players: players,
+                        canStart: canStart,
+                        isHost: isHost,
+                        isMyReady: isMyReady,
+                        isSpectator: isSpectator,
+                        allReady: allReady,
+                        myUid: myUid,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        primaryColor: primaryColor,
+                        textMuted: textMuted,
+                        textColor: textColor,
+                        isDark: isDark,
+                        socketProvider: socketProvider,
+                      ),
                     ),
-            ),
-          ),
-        ],
+                    const SizedBox(width: AppTheme.space24),
+                    Expanded(
+                      flex: 1,
+                      child: ChatPanel(
+                        messages: _chatMessages,
+                        onSendMessage: _handleSendMessage,
+                        onSendReaction: _handleSendReaction,
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    _buildMainPanel(
+                      roomCode: roomCode,
+                      players: players,
+                      canStart: canStart,
+                      isHost: isHost,
+                      isMyReady: isMyReady,
+                      isSpectator: isSpectator,
+                      allReady: allReady,
+                      myUid: myUid,
+                      cardBg: cardBg,
+                      borderColor: borderColor,
+                      primaryColor: primaryColor,
+                      textMuted: textMuted,
+                      textColor: textColor,
+                      isDark: isDark,
+                      socketProvider: socketProvider,
+                    ),
+                    const SizedBox(height: AppTheme.space24),
+                    Expanded(
+                      child: ChatPanel(
+                        messages: _chatMessages,
+                        onSendMessage: _handleSendMessage,
+                        onSendReaction: _handleSendReaction,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -314,14 +303,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final category = settings['category'] ?? 'all';
     final difficulty = settings['difficulty'] ?? 'all';
     final duration = settings['duration'] ?? 80;
+    final rounds = settings['rounds'] ?? 3;
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.space24),
-      decoration: AppTheme.gameCardDecoration(
-        color: cardBg,
-        borderColor: borderColor,
-        shadowColor: primaryColor,
-      ),
+      decoration: AppTheme.gameCard(context),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -350,11 +336,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    decoration: AppTheme.gameCardDecoration(
-                      color: primaryColor.withOpacity(0.08),
-                      borderColor: borderColor,
-                      shadowColor: borderColor,
-                      radius: AppTheme.radiusMedium,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 1.5),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -363,7 +348,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           roomCode,
                           style: TextStyle(
                             fontSize: 26,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w900,
                             color: primaryColor,
                             letterSpacing: 3,
                           ),
@@ -384,16 +369,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Players (${players.length}/8)',
+                'Players (${players.length}/10)',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               Row(
                 children: [
                   Container(
-                    width: 6,
-                    height: 6,
+                    width: 8,
+                    height: 8,
                     decoration: const BoxDecoration(
-                      color: AppTheme.accentLight,
+                      color: AppColors.mint,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -411,11 +396,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
           // Player list wrap box
           Container(
             padding: const EdgeInsets.all(AppTheme.space16),
-            decoration: AppTheme.gameCardDecoration(
-              color: isDark ? const Color(0xFF0F0C1B) : const Color(0xFFFAF9FC),
-              borderColor: borderColor,
-              shadowColor: primaryColor.withOpacity(0.2),
-              radius: AppTheme.radiusMedium,
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: Border.all(color: borderColor, width: 1),
             ),
             child: Wrap(
               spacing: AppTheme.space16,
@@ -453,7 +437,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
               label: 'Category',
               value: category,
               items: _categories,
-              itemLabel: (c) => c == 'all' ? 'Mixed Categories' : c,
+              itemLabel: (c) => c == 'all' ? 'Mixed Categories' : c.toUpperCase(),
               onChanged: (val) {
                 if (val != null) {
                   socketProvider.emitUpdateSettings({'category': val});
@@ -490,14 +474,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
               textColor: textColor,
               borderColor: borderColor,
             ),
+            const SizedBox(height: AppTheme.space8),
+            _buildDropdown<int>(
+              label: 'Rounds',
+              value: rounds,
+              items: _roundOptions,
+              itemLabel: (r) => '$r ${r == 1 ? "Round" : "Rounds"}',
+              onChanged: (val) {
+                if (val != null) {
+                  socketProvider.emitUpdateSettings({'rounds': val});
+                }
+              },
+              textColor: textColor,
+              borderColor: borderColor,
+            ),
           ] else ...[
-            // Read-only settings banner for guest players
             Container(
               padding: const EdgeInsets.all(AppTheme.space16),
               decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.04),
+                color: primaryColor.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                border: Border.all(color: borderColor, width: 2),
+                border: Border.all(color: borderColor, width: 1.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -513,7 +510,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                   const SizedBox(height: AppTheme.space8),
                   Text(
-                    'Category: ${category == 'all' ? 'Mixed' : category}',
+                    'Category: ${category == 'all' ? 'Mixed' : category.toUpperCase()}',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor),
                   ),
                   const SizedBox(height: AppTheme.space4),
@@ -523,7 +520,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                   const SizedBox(height: AppTheme.space4),
                   Text(
-                    'Time Limit: $duration seconds',
+                    'Time Limit: $duration seconds  ·  Rounds: $rounds',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor),
                   ),
                 ],
@@ -536,12 +533,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
           // Action Buttons: Ready toggle for guest, Start Game for host
           if (isHost) ...[
             Container(
-              height: 56,
-              decoration: AppTheme.gameCardDecoration(
-                color: canStart ? primaryColor : primaryColor.withOpacity(0.4),
-                borderColor: borderColor,
-                shadowColor: borderColor,
-                radius: AppTheme.radiusMedium,
+              height: 54,
+              decoration: AppTheme.gradientButton(
+                startColor: canStart ? AppColors.coral : Colors.grey,
+                endColor: canStart ? AppColors.rose : Colors.grey,
               ),
               child: ElevatedButton(
                 onPressed: canStart ? _startGame : null,
@@ -555,19 +550,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: Text(
                   players.length < 2
                       ? 'Need at least 2 players'
-                      : (!allReady ? 'Waiting for players to ready up...' : 'Start Game'),
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      : (!allReady ? 'Waiting for players to ready up...' : 'Start Game ($rounds Rounds)'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
                 ),
               ),
             ),
           ] else if (!isSpectator) ...[
             Container(
-              height: 56,
-              decoration: AppTheme.gameCardDecoration(
-                color: isMyReady ? AppTheme.accentCoral : AppTheme.accentLight,
-                borderColor: borderColor,
-                shadowColor: borderColor,
-                radius: AppTheme.radiusMedium,
+              height: 54,
+              decoration: AppTheme.gradientButton(
+                startColor: isMyReady ? AppColors.coral : AppColors.teal,
+                endColor: isMyReady ? AppColors.rose : AppColors.mint,
               ),
               child: ElevatedButton.icon(
                 onPressed: () {
@@ -587,12 +580,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 ),
                 label: Text(
                   isMyReady ? 'Not Ready' : 'Ready Up',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
                 ),
               ),
             ),
           ] else ...[
-            // Spectator waiting panel
             Center(
               child: Text(
                 'Spectating Lobby · Game is in progress',
@@ -612,20 +604,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final isReady = player['isReady'] == true;
 
     String statusText = 'Not Ready';
-    Color statusColor = AppTheme.accentCoral;
+    Color statusColor = AppColors.coral;
 
     if (!isOnline) {
       statusText = 'Offline';
       statusColor = Colors.grey;
     } else if (isSpectator) {
       statusText = 'Spectator';
-      statusColor = Colors.blue;
+      statusColor = AppColors.skyBlue;
     } else if (isHost) {
       statusText = 'Host';
-      statusColor = AppTheme.accentYellow;
+      statusColor = AppColors.sunny;
     } else if (isReady) {
       statusText = 'Ready';
-      statusColor = AppTheme.accentLight;
+      statusColor = AppColors.mint;
     }
 
     return Opacity(
@@ -644,7 +636,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Container(
                   padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
-                    color: AppTheme.accentYellow,
+                    color: AppColors.sunny,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(LucideIcons.crown, size: 8, color: Colors.white),

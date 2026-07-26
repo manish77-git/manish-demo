@@ -60,7 +60,7 @@ class DrawingStroke {
   Map<String, dynamic> toJson() {
     return {
       'points': points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
-      'color': color.value,
+      'color': color.toARGB32(),
       'strokeWidth': strokeWidth,
       'toolType': toolType.name,
       'opacity': opacity,
@@ -77,9 +77,11 @@ class DrawingStroke {
         .map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
         .toList();
 
+    final colorVal = json['color'] as int;
+
     return DrawingStroke(
       points: points,
-      color: Color(json['color'] as int),
+      color: Color(colorVal),
       strokeWidth: (json['strokeWidth'] as num).toDouble(),
       toolType: DrawingToolType.values.firstWhere(
         (t) => t.name == json['toolType'],
@@ -203,8 +205,39 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  final List<Color> _recentColors = [
+    const Color(0xFFFF6B6B),
+    const Color(0xFF4ECDC4),
+    const Color(0xFFFFE66D),
+    const Color(0xFFA78BFA),
+    const Color(0xFF2D3436),
+  ];
+  final List<Color> _favoriteColors = [
+    const Color(0xFFFF6B6B),
+    const Color(0xFF4ECDC4),
+    const Color(0xFFFFE66D),
+  ];
+
+  List<Color> get recentColors => List.unmodifiable(_recentColors);
+  List<Color> get favoriteColors => List.unmodifiable(_favoriteColors);
+
   void setColor(Color color) {
     _currentColor = color;
+    if (!_recentColors.contains(color)) {
+      _recentColors.insert(0, color);
+      if (_recentColors.length > 8) {
+        _recentColors.removeLast();
+      }
+    }
+    notifyListeners();
+  }
+
+  void toggleFavoriteColor(Color color) {
+    if (_favoriteColors.contains(color)) {
+      _favoriteColors.remove(color);
+    } else {
+      _favoriteColors.add(color);
+    }
     notifyListeners();
   }
 
@@ -263,7 +296,7 @@ class DrawingProvider extends ChangeNotifier {
     if (lastStroke.points.isEmpty || lastStroke.isShape) return point;
     final lastPoint = lastStroke.points.last;
     // Exponential Moving Average
-    final weight = 0.35;
+    const weight = 0.35;
     return Offset(
       lastPoint.dx + (point.dx - lastPoint.dx) * weight,
       lastPoint.dy + (point.dy - lastPoint.dy) * weight,
@@ -325,7 +358,6 @@ class DrawingProvider extends ChangeNotifier {
 
   void addPoint(Offset point) {
     if (_currentTool == DrawingToolType.select && _selectedStrokeIndex != null) {
-      // Move selected stroke on drag
       if (_strokes.isNotEmpty && _selectedStrokeIndex! < _strokes.length) {
         if (onLocalCursorMoved != null) {
           onLocalCursorMoved!(point.dx, point.dy);
@@ -358,7 +390,6 @@ class DrawingProvider extends ChangeNotifier {
 
   void endStroke() {
     if (_strokes.isNotEmpty) {
-      // If mirror mode is active, duplicate the last stroke with coordinates flipped vertically
       if (_mirrorDrawing && _currentTool != DrawingToolType.select && _currentTool != DrawingToolType.fill) {
         final last = _strokes.last;
         final mirroredPoints = last.points.map((p) => Offset(800.0 - p.dx, p.dy)).toList();
@@ -408,7 +439,6 @@ class DrawingProvider extends ChangeNotifier {
       final stroke = _strokes[_selectedStrokeIndex!];
       if (stroke.points.isEmpty) return;
 
-      // Find center
       double sumX = 0, sumY = 0;
       for (final p in stroke.points) {
         sumX += p.dx;
@@ -529,7 +559,7 @@ class DrawingProvider extends ChangeNotifier {
         final paint = Paint()
           ..color = stroke.isEraser
               ? Colors.white
-              : stroke.color.withOpacity(stroke.opacity)
+              : stroke.color.withValues(alpha: stroke.opacity)
           ..strokeWidth = stroke.strokeWidth
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round
@@ -538,12 +568,12 @@ class DrawingProvider extends ChangeNotifier {
 
         if (stroke.toolType == DrawingToolType.watercolor) {
           paint.strokeWidth = stroke.strokeWidth * 1.5;
-          paint.color = stroke.color.withOpacity(stroke.opacity * 0.35);
+          paint.color = stroke.color.withValues(alpha: stroke.opacity * 0.35);
         } else if (stroke.toolType == DrawingToolType.neon) {
           canvas.drawPath(
             _createPathForStroke(stroke),
             Paint()
-              ..color = stroke.color.withOpacity(0.4)
+              ..color = stroke.color.withValues(alpha: 0.4)
               ..strokeWidth = stroke.strokeWidth * 2.2
               ..style = PaintingStyle.stroke
               ..strokeCap = StrokeCap.round
@@ -621,7 +651,6 @@ class DrawingProvider extends ChangeNotifier {
         canvas.drawPath(path, paint);
         break;
       case DrawingToolType.polygon:
-        // Draw a clean hexagon as polygon shape
         final path = Path();
         final center = rect.center;
         final radius = rect.width / 2;

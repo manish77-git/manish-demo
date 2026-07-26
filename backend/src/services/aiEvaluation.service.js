@@ -16,9 +16,27 @@ function getGrade(score) {
 }
 
 /**
- * Generate a quality-based fallback evaluation when Gemini is unavailable.
- * Uses image feature analysis to provide a best-effort score.
+ * Build a graceful fallback result when all AI evaluations fail.
+ * Returns a default C-grade score so the game always completes.
  */
+function buildFallbackResult(prompt) {
+  return {
+    similarityScore: 50,
+    objectRecognitionScore: 50,
+    requiredFeaturesScore: 50,
+    compositionScore: 50,
+    creativityScore: 50,
+    strokeQualityScore: 50,
+    reasoning: `The AI couldn't fully evaluate this drawing for "${prompt}". A default score has been applied.`,
+    labels: [prompt],
+    accuracy: 0,
+    missingElements: [],
+    strengths: ['Drawing submitted successfully'],
+    weaknesses: ['AI evaluation was unavailable'],
+    grade: 'C',
+  };
+}
+
 /**
  * Evaluate a single drawing against a prompt using Gemini.
  *
@@ -26,15 +44,12 @@ function getGrade(score) {
  * 1. Extract image features (blank detection)
  * 2. If blank → return 0/F immediately
  * 3. Call Gemini Vision API for semantic evaluation
- * 4. Propagates any API or rate limit errors directly to the route handler.
+ * 4. On total failure → returns graceful fallback (never throws to caller)
  *
  * @param {Buffer} imageBuffer - Raw PNG image from user
  * @param {string} prompt - The drawing prompt
  * @param {Object} options
- * @param {number} options.drawingTimeSeconds - Max allowed time
- * @param {number} options.timeTakenSeconds - Actual time taken
- * @param {number} options.streak - Player's win streak
- * @returns {Promise<{ score: number, grade: string, confidence: number, explanation: string[], labels: string[], creativityScore: number, reasoning: string, missingElements: string[], breakdown: Object }>}
+ * @returns {Promise<Object>}
  */
 export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
   const { drawingTimeSeconds = 60, timeTakenSeconds = 60, streak = 0 } = options;
@@ -42,11 +57,15 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
   logger.info(`Evaluating drawing for prompt: "${prompt}"`);
 
   // 1. Preprocess and extract features
-  const { buffer: processedImage } = await preprocessImage(imageBuffer, {
-    width: 256,
-    height: 256,
-  });
-  const imageFeatures = await extractImageFeatures(processedImage);
+  let processedImage, imageFeatures;
+  try {
+    const result = await preprocessImage(imageBuffer, { width: 256, height: 256 });
+    processedImage = result.buffer;
+    imageFeatures = await extractImageFeatures(processedImage);
+  } catch (err) {
+    logger.warn(`Image preprocessing failed: ${err.message}. Using raw buffer.`);
+    imageFeatures = { isBlank: false, coverage: 0.5, edgeDensity: 0.5 };
+  }
 
   // 2. Blank drawing check
   if (imageFeatures.isBlank) {
@@ -58,14 +77,26 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
       explanation: ['Blank drawing submitted.', 'Please draw on the canvas.'],
       labels: [],
       creativityScore: 0,
+      objectRecognitionScore: 0,
+      requiredFeaturesScore: 0,
+      compositionScore: 0,
+      strokeQualityScore: 0,
       reasoning: 'Blank canvas detected.',
       missingElements: ['All elements missing.'],
+      strengths: [],
+      weaknesses: ['Nothing was drawn'],
       breakdown: { aiScore: 0, reason: 'Blank drawing detected' },
     };
   }
 
-  // 3. Call Gemini Vision evaluation (propagates errors)
-  const aiResult = await evaluateWithGemini(imageBuffer, prompt);
+  // 3. Call Gemini Vision evaluation with graceful fallback
+  let aiResult;
+  try {
+    aiResult = await evaluateWithGemini(imageBuffer, prompt);
+  } catch (err) {
+    logger.error(`AI evaluation failed for "${prompt}": ${err.message}. Using fallback score.`);
+    aiResult = buildFallbackResult(prompt);
+  }
 
   // 4. Calculate composite score using Gemini score as base
   const { score, breakdown } = calculateCompositeScore({
@@ -78,11 +109,11 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
 
   const grade = getGrade(score);
 
-  // Build beautiful explanation array for the UI
+  // Build explanation array for the UI
   const explanation = [
     aiResult.reasoning,
-    ...aiResult.missingElements.map(element => `Missing: ${element}`),
-    ...aiResult.strengths.map(strength => `Strength: ${strength}`),
+    ...(aiResult.missingElements || []).map(element => `Missing: ${element}`),
+    ...(aiResult.strengths || []).map(strength => `Strength: ${strength}`),
   ];
 
   logger.info(`Drawing evaluated: prompt="${prompt}", score=${score}, grade=${grade}`);

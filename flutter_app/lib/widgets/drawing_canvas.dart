@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
 import '../providers/drawing_provider.dart';
-import '../config/theme.dart';
+import '../config/app_colors.dart';
 
 /// Custom drawing canvas supporting multiple textured brushes, selections, and live opponents.
 class DrawingCanvas extends StatelessWidget {
@@ -14,57 +14,63 @@ class DrawingCanvas extends StatelessWidget {
 
     return Consumer<DrawingProvider>(
       builder: (context, drawing, _) {
-        return GestureDetector(
-          onTapDown: (details) {
-            drawing.startStroke(details.localPosition);
-            drawing.endStroke();
-          },
-          onPanStart: (details) {
-            final box = context.findRenderObject() as RenderBox;
-            final point = box.globalToLocal(details.globalPosition);
-            drawing.startStroke(point);
-          },
-          onPanUpdate: (details) {
-            final box = context.findRenderObject() as RenderBox;
-            final point = box.globalToLocal(details.globalPosition);
-
-            if (drawing.currentTool == DrawingToolType.select) {
-              final delta = details.delta;
-              drawing.moveSelectedStroke(delta);
-            } else {
-              drawing.addPoint(point);
-            }
-          },
-          onPanEnd: (_) => drawing.endStroke(),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                  width: 3,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
-                    blurRadius: 24,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                width: 2,
               ),
-              child: CustomPaint(
-                painter: _CanvasPainter(
-                  strokes: drawing.strokes,
-                  opponentStrokes: drawing.opponentStrokes,
-                  opponentCursors: drawing.opponentCursors,
-                  opponentNames: drawing.opponentNames,
-                  showGrid: drawing.showGrid,
-                  isDark: isDark,
-                  selectedStrokeIndex: drawing.selectedStrokeIndex,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.3 : 0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
                 ),
-                size: Size.infinite,
+              ],
+            ),
+            child: InteractiveViewer(
+              panEnabled: drawing.currentTool == DrawingToolType.select,
+              scaleEnabled: true,
+              minScale: 0.8,
+              maxScale: 4.0,
+              child: GestureDetector(
+                onTapDown: (details) {
+                  drawing.startStroke(details.localPosition);
+                  drawing.endStroke();
+                },
+                onPanStart: (details) {
+                  final box = context.findRenderObject() as RenderBox;
+                  final point = box.globalToLocal(details.globalPosition);
+                  drawing.startStroke(point);
+                },
+                onPanUpdate: (details) {
+                  final box = context.findRenderObject() as RenderBox;
+                  final point = box.globalToLocal(details.globalPosition);
+
+                  if (drawing.currentTool == DrawingToolType.select) {
+                    final delta = details.delta;
+                    drawing.moveSelectedStroke(delta);
+                  } else {
+                    drawing.addPoint(point);
+                  }
+                },
+                onPanEnd: (_) => drawing.endStroke(),
+                child: CustomPaint(
+                  painter: _CanvasPainter(
+                    strokes: drawing.strokes,
+                    opponentStrokes: drawing.opponentStrokes,
+                    opponentCursors: drawing.opponentCursors,
+                    opponentNames: drawing.opponentNames,
+                    showGrid: drawing.showGrid,
+                    isDark: isDark,
+                    selectedStrokeIndex: drawing.selectedStrokeIndex,
+                  ),
+                  size: Size.infinite,
+                ),
               ),
             ),
           ),
@@ -472,7 +478,7 @@ class _CanvasPainter extends CustomPainter {
 
   void _drawOpponentCursor(Canvas canvas, Offset cursor, String name) {
     final fillPaint = Paint()
-      ..color = AppTheme.accentCoral
+      ..color = AppColors.coral
       ..style = PaintingStyle.fill;
     final borderPaint = Paint()
       ..color = Colors.white
@@ -491,7 +497,7 @@ class _CanvasPainter extends CustomPainter {
           color: Colors.white,
           fontSize: 10,
           fontWeight: FontWeight.bold,
-          backgroundColor: AppTheme.accentCoral,
+          backgroundColor: AppColors.coral,
         ),
       ),
       textDirection: TextDirection.ltr,

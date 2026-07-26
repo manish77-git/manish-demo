@@ -10,19 +10,14 @@ import logger from './utils/logger.js';
 import LobbyManager from './services/lobbyManager.js';
 import { checkGeminiStatus } from './services/geminiEvaluator.service.js';
 import { getRandomPrompt } from './models/prompts.js';
+import { evaluateDrawing } from './services/aiEvaluation.service.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
 import gameRoutes from './routes/game.routes.js';
 import drawingRoutes from './routes/drawing.routes.js';
-import leaderboardRoutes from './routes/leaderboard.routes.js';
 import statsRoutes from './routes/stats.routes.js';
-import matchmakingRoutes from './routes/matchmaking.routes.js';
-import achievementsRoutes from './routes/achievements.routes.js';
-import dailyRoutes from './routes/daily.routes.js';
-
-// Services
-import { initMatchmaking } from './services/matchmaking.service.js';
+import friendsRoutes from './routes/friends.routes.js';
 
 // ─── Bootstrap ──────────────────────────────────────────────
 async function bootstrap() {
@@ -45,13 +40,12 @@ async function bootstrap() {
       origin: '*',
       methods: ['GET', 'POST'],
     },
+    pingTimeout: 30000,
+    pingInterval: 15000,
   });
 
   // Store io instance on app for controllers to use
   app.set('io', io);
-
-  // Initialize matchmaking system
-  initMatchmaking(io);
 
   // ─── Lobby Manager ──────────────────────────────────────
   const lobbyManager = new LobbyManager();
@@ -59,6 +53,31 @@ async function bootstrap() {
   // Socket.IO connection handling
   io.on('connection', (socket) => {
     logger.debug(`Socket connected: ${socket.id}`);
+
+    // Track user online status
+    socket.on('user:online', async (data) => {
+      const { uid } = data || {};
+      if (!uid) return;
+      socket.userId = uid;
+      socket.join(`user:${uid}`);
+      try {
+        const db = getFirestore();
+        await db.collection('users').doc(uid).update({ isOnline: true, lastOnline: new Date().toISOString() });
+        io.emit('user:online_status', { uid, isOnline: true });
+      } catch (_) {}
+    });
+
+    // Send direct game invite to a friend
+    socket.on('friend:invite', (data) => {
+      const { friendUid, roomCode, hostName } = data || {};
+      if (!friendUid || !roomCode) return;
+      io.to(`user:${friendUid}`).emit('friend:invite_received', {
+        fromUid: socket.userId,
+        hostName: hostName || 'Your friend',
+        roomCode,
+      });
+      logger.info(`Friend game invite sent from ${socket.userId} to ${friendUid} for room ${roomCode}`);
+    });
 
     // ─── Room: Create ─────────────────────────────────────
     socket.on('room:create', (data) => {
@@ -196,7 +215,7 @@ async function bootstrap() {
       });
     });
 
-    // ─── Live Match Controls & Metrics ────────────────────
+    // ─── Match Start (Round 1) ────────────────────────────
     socket.on('match:start', async (data) => {
       const { roomCode, difficulty, category, duration } = data || {};
       const actualRoomCode = roomCode || socket.roomCode;
@@ -210,12 +229,18 @@ async function bootstrap() {
         if (duration) room.settings.duration = parseInt(duration) || 80;
       }
 
-      const activeSettings = room ? room.settings : { difficulty: 'all', category: 'all', duration: 80 };
+      const activeSettings = room ? room.settings : { difficulty: 'all', category: 'all', duration: 80, rounds: 3 };
 
-      // Select the prompt from the database based on difficulty and category!
+      // Initialize multi-round tracking
+      lobbyManager.startMatch(actualRoomCode);
+
+      // Select the prompt from the database based on difficulty and category
       const promptInfo = getRandomPrompt(activeSettings.difficulty, activeSettings.category);
       const selectedPrompt = promptInfo.prompt;
-      
+
+      // Record this round's prompt
+      lobbyManager.setRoundPrompt(actualRoomCode, selectedPrompt);
+
       // Create the game session in the Firestore mock database
       try {
         const db = getFirestore();
@@ -237,24 +262,75 @@ async function bootstrap() {
           })),
           maxPlayers: activeSettings.maxPlayers || 8,
           drawingTimeSeconds: activeSettings.duration,
+          totalRounds: activeSettings.rounds || 3,
+          currentRound: 1,
           createdAt: new Date().toISOString(),
           startedAt: new Date().toISOString(),
           endedAt: null,
           submissions: {},
+          rounds: [],
         };
 
         await db.collection('gameSessions').doc(actualRoomCode).set(session);
-        logger.info(`Game session initialized in database for room: ${actualRoomCode} with prompt "${selectedPrompt}"`);
+        logger.info(`Game session initialized for room: ${actualRoomCode} | Round 1 | Prompt: "${selectedPrompt}"`);
       } catch (err) {
-        logger.error(`Failed to initialize game session in database: ${err.message}`);
+        logger.error(`Failed to initialize game session: ${err.message}`);
       }
 
       io.to(actualRoomCode).emit('match:start', {
         prompt: selectedPrompt,
         duration: activeSettings.duration,
+        currentRound: 1,
+        totalRounds: activeSettings.rounds || 3,
       });
     });
 
+    // ─── Match: Next Round ────────────────────────────────
+    socket.on('match:next_round', async (data) => {
+      const { roomCode } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode) return;
+
+      const room = lobbyManager.rooms.get(actualRoomCode);
+      if (!room) return;
+
+      const roundInfo = lobbyManager.advanceRound(actualRoomCode);
+      if (!roundInfo) {
+        // No more rounds — finalize
+        socket.emit('room:error', { message: 'No more rounds available.' });
+        return;
+      }
+
+      // Pick a new prompt
+      const promptInfo = getRandomPrompt(room.settings.difficulty, room.settings.category);
+      lobbyManager.setRoundPrompt(actualRoomCode, promptInfo.prompt);
+
+      // Clear all drawings for the new round
+      lobbyManager.drawings.set(actualRoomCode, {});
+
+      // Update DB
+      try {
+        const db = getFirestore();
+        await db.collection('gameSessions').doc(actualRoomCode).update({
+          currentRound: roundInfo.currentRound,
+          prompt: promptInfo.prompt,
+          status: 'drawing',
+          startedAt: new Date().toISOString(),
+          submissions: {},
+        });
+      } catch (_) {}
+
+      io.to(actualRoomCode).emit('match:start', {
+        prompt: promptInfo.prompt,
+        duration: room.settings.duration,
+        currentRound: roundInfo.currentRound,
+        totalRounds: roundInfo.totalRounds,
+      });
+
+      logger.info(`Room ${actualRoomCode} advanced to round ${roundInfo.currentRound}/${roundInfo.totalRounds} | Prompt: "${promptInfo.prompt}"`);
+    });
+
+    // ─── Live Match Metrics ───────────────────────────────
     socket.on('match:live_metrics', (data) => {
       const { roomCode, metrics } = data || {};
       const actualRoomCode = roomCode || socket.roomCode;
@@ -309,8 +385,17 @@ async function bootstrap() {
     });
 
     // ─── Disconnect ───────────────────────────────────────
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       chatRateLimit.delete(socket.id);
+
+      // Mark user offline
+      if (socket.userId) {
+        try {
+          const db = getFirestore();
+          await db.collection('users').doc(socket.userId).update({ isOnline: false, lastOnline: new Date().toISOString() });
+          io.emit('user:online_status', { uid: socket.userId, isOnline: false });
+        } catch (_) {}
+      }
 
       const result = lobbyManager.disconnectPlayer(socket.id, (roomCode, room) => {
         // Broadcast the removal of player after timeout
@@ -357,7 +442,7 @@ async function bootstrap() {
       success: true,
       data: {
         status: 'healthy',
-        version: '1.0.0',
+        version: '2.0.0',
         uptime: Math.round(process.uptime()),
         timestamp: new Date().toISOString(),
       },
@@ -367,11 +452,8 @@ async function bootstrap() {
   app.use('/api/auth', authRoutes);
   app.use('/api/games', gameRoutes);
   app.use('/api/drawings', drawingRoutes);
-  app.use('/api/leaderboard', leaderboardRoutes);
   app.use('/api/stats', statsRoutes);
-  app.use('/api/matchmaking', matchmakingRoutes);
-  app.use('/api/achievements', achievementsRoutes);
-  app.use('/api/daily', dailyRoutes);
+  app.use('/api/friends', friendsRoutes);
 
   // ─── Error Handling ─────────────────────────────────────
   app.use(notFoundHandler);
@@ -385,7 +467,6 @@ async function bootstrap() {
 ║──────────────────────────────────────────────║
 ║  Port:      ${String(env.port).padEnd(33)}║
 ║  Mode:      ${String(env.nodeEnv).padEnd(33)}║
-║  AI Model:  ${String(env.aiModelMode).padEnd(33)}║
 ║  Health:    http://localhost:${env.port}/api/health${' '.repeat(Math.max(0, 8 - String(env.port).length))}║
 ╚══════════════════════════════════════════════╝
     `);
