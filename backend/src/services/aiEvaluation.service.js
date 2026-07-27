@@ -72,6 +72,27 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
   // 3. Call Gemini Vision evaluation
   const aiResult = await evaluateWithGemini(imageBuffer, prompt);
 
+  if (aiResult.unavailable) {
+    return {
+      score: 0,
+      grade: 'F',
+      confidence: 0,
+      explanation: ['AI evaluation is temporarily unavailable. Please try again.'],
+      labels: [],
+      creativityScore: 0,
+      objectRecognitionScore: 0,
+      requiredFeaturesScore: 0,
+      compositionScore: 0,
+      strokeQualityScore: 0,
+      reasoning: 'AI evaluation is temporarily unavailable. Please try again.',
+      missingElements: [],
+      strengths: [],
+      weaknesses: [],
+      unavailable: true,
+      breakdown: { aiScore: 0, reason: 'AI evaluation service unavailable' },
+    };
+  }
+
   // 4. Calculate composite score using Gemini score as base
   const { score, breakdown } = calculateCompositeScore({
     aiScore: aiResult.similarityScore,

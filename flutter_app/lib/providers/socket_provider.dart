@@ -23,7 +23,10 @@ class SocketProvider extends ChangeNotifier {
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
 
   // ─── Callback Subscriptions ─────────────────────────────
+  void Function(int countdownSeconds, String prompt, int duration, int currentRound, int totalRounds)? onMatchCountdown;
   void Function(String prompt, int duration, int currentRound, int totalRounds)? onMatchStarted;
+  void Function(String userId, String displayName)? onPlayerFinished;
+  void Function(Map<String, dynamic> resultsData)? onGameResults;
   void Function(Map<String, dynamic> history)? onDrawingHistory;
   void Function(String userId, List<dynamic> strokes)? onDrawingStroke;
   void Function(String userId)? onDrawingClear;
@@ -131,6 +134,18 @@ class SocketProvider extends ChangeNotifier {
     });
 
     // ─── Multiplayer Match Events ───────────────────────
+    _socket!.on('match:countdown', (data) {
+      debugPrint('[SocketProvider] Match countdown: $data');
+      if (onMatchCountdown != null) {
+        final countdown = data['countdownSeconds'] as int? ?? 3;
+        final prompt = data['prompt'] as String? ?? 'cat';
+        final duration = data['duration'] as int? ?? 80;
+        final currentRound = data['currentRound'] as int? ?? 1;
+        final totalRounds = data['totalRounds'] as int? ?? 3;
+        onMatchCountdown!(countdown, prompt, duration, currentRound, totalRounds);
+      }
+    });
+
     _socket!.on('match:start', (data) {
       debugPrint('[SocketProvider] Match start: $data');
       if (onMatchStarted != null) {
@@ -139,6 +154,23 @@ class SocketProvider extends ChangeNotifier {
         final currentRound = data['currentRound'] as int? ?? 1;
         final totalRounds = data['totalRounds'] as int? ?? 3;
         onMatchStarted!(prompt, duration, currentRound, totalRounds);
+      }
+    });
+
+    _socket!.on('drawing:submitted', (data) {
+      debugPrint('[SocketProvider] Drawing submitted by player: $data');
+      if (onPlayerFinished != null) {
+        final userId = data['userId'] as String? ?? '';
+        final displayName = data['displayName'] as String? ?? 'Player';
+        onPlayerFinished!(userId, displayName);
+      }
+    });
+
+    _socket!.on('game:results', (data) {
+      debugPrint('[SocketProvider] Game results received: $data');
+      if (onGameResults != null) {
+        final map = Map<String, dynamic>.from(data as Map);
+        onGameResults!(map);
       }
     });
 
@@ -300,24 +332,15 @@ class SocketProvider extends ChangeNotifier {
   }
 
   void emitStroke(List<Map<String, dynamic>> strokesJson) {
-    _socket?.emit('drawing:stroke', {
-      'roomCode': _roomCode,
-      'strokes': strokesJson,
-    });
+    // Canvas is private to each player; no stroke emission over network
   }
 
   void emitClear() {
-    _socket?.emit('drawing:clear', {
-      'roomCode': _roomCode,
-    });
+    // Canvas is private to each player; no clear emission over network
   }
 
   void emitCursor(double x, double y) {
-    _socket?.emit('drawing:cursor', {
-      'roomCode': _roomCode,
-      'x': x,
-      'y': y,
-    });
+    // Canvas is private to each player; no cursor emission over network
   }
 
   void emitLiveMetrics(Map<String, dynamic> metrics) {

@@ -52,6 +52,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
   String _aiDetectedObject = 'nothing';
   String _aiSuggestion = 'Start drawing to get live suggestions.';
 
+  bool _isCountdown = true;
+  int _countdownNum = 3;
+  Timer? _countdownTimer;
+  bool _waitingForOpponent = false;
+  bool _opponentFinished = false;
+  String _opponentFinishedName = '';
+
   final Map<String, Map<String, dynamic>> _opponentLiveMetrics = {};
   int _evaluatingMsgIndex = 0;
   Timer? _evaluatingMsgTimer;
@@ -200,48 +207,97 @@ class _DrawingScreenState extends State<DrawingScreen> {
       if (_isMultiplayer) {
         final socketProvider = context.read<SocketProvider>();
 
-        if (!_isSpectator) {
-          drawing.onLocalStrokesChanged = (strokesJson) {
-            socketProvider.emitStroke(strokesJson);
-          };
-          drawing.onLocalCursorMoved = (x, y) {
-            socketProvider.emitCursor(x, y);
-          };
-          drawing.onLocalCanvasCleared = () {
-            socketProvider.emitClear();
-          };
-        }
-
-        socketProvider.onDrawingHistory = (history) {
-          drawing.loadDrawingHistory(history);
-        };
-        socketProvider.onDrawingStroke = (userId, strokes) {
-          final name = socketProvider.roomPlayers.firstWhere(
-            (p) => p['uid'] == userId,
-            orElse: () => {'displayName': 'Opponent'},
-          )['displayName'] as String;
-          drawing.updateOpponentStrokes(userId, name, strokes);
-        };
-        socketProvider.onDrawingClear = (userId) {
-          drawing.clearOpponent(userId);
-        };
-        socketProvider.onDrawingCursor = (userId, x, y) {
-          drawing.updateOpponentCursor(userId, x, y);
-        };
-        socketProvider.onLiveMetrics = (userId, metrics) {
+        socketProvider.onMatchCountdown = (sec, prompt, duration, curRound, totRounds) {
           if (mounted) {
             setState(() {
-              _opponentLiveMetrics[userId] = metrics;
+              _currentPrompt = prompt;
+              _timeLeft = duration;
+              _currentRound = curRound;
+              _totalRounds = totRounds;
+              _isCountdown = true;
+              _countdownNum = sec;
+            });
+            _startCountdownTimer();
+          }
+        };
+
+        socketProvider.onMatchStarted = (prompt, duration, curRound, totRounds) {
+          if (mounted) {
+            setState(() {
+              _currentPrompt = prompt;
+              _timeLeft = duration;
+              _currentRound = curRound;
+              _totalRounds = totRounds;
+              _isCountdown = false;
             });
           }
         };
+
+        socketProvider.onPlayerFinished = (userId, displayName) {
+          if (mounted) {
+            setState(() {
+              _opponentFinished = true;
+              _opponentFinishedName = displayName;
+            });
+          }
+        };
+
+        socketProvider.onGameResults = (resultsData) {
+          if (mounted) {
+            _timer?.cancel();
+            final myUid = context.read<AuthProvider>().uid;
+            final drawingsMap = resultsData['drawings'] as Map<String, dynamic>? ?? {};
+            final myData = drawingsMap[myUid] as Map<String, dynamic>? ?? {};
+            final score = (myData['score'] as num? ?? 0).toInt();
+            final grade = myData['grade'] as String? ?? 'F';
+            final explanation = List<String>.from(myData['explanation'] as List? ?? []);
+
+            Navigator.pushReplacementNamed(
+              context,
+              '/results',
+              arguments: {
+                'score': score,
+                'grade': grade,
+                'explanation': explanation,
+                'prompt': _currentPrompt,
+                'isMultiplayer': true,
+                'gameId': socketProvider.roomCode,
+                'drawingsData': resultsData,
+                'winnerId': resultsData['winnerId'],
+              },
+            );
+          }
+        };
       }
+    });
+    _startCountdownTimer();
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_countdownNum > 1) {
+          _countdownNum--;
+          AudioService().playTick();
+        } else {
+          _countdownNum = 0;
+          _isCountdown = false;
+          _countdownTimer?.cancel();
+          AudioService().playRoundStart();
+        }
+      });
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _countdownTimer?.cancel();
     _analysisDebounce?.cancel();
     _evaluatingMsgTimer?.cancel();
     try {
@@ -252,11 +308,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
       drawing.onLocalCanvasCleared = null;
 
       final socketProvider = context.read<SocketProvider>();
-      socketProvider.onDrawingHistory = null;
-      socketProvider.onDrawingStroke = null;
-      socketProvider.onDrawingClear = null;
-      socketProvider.onDrawingCursor = null;
-      socketProvider.onLiveMetrics = null;
+      socketProvider.onMatchCountdown = null;
+      socketProvider.onMatchStarted = null;
+      socketProvider.onPlayerFinished = null;
+      socketProvider.onGameResults = null;
     } catch (_) {}
     super.dispose();
   }
@@ -387,43 +442,48 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
       DrawingResult result;
       if (_isMultiplayer && roomCode != null && roomCode.isNotEmpty) {
-        result = await service.submitDrawing(
+        setState(() {
+          _waitingForOpponent = true;
+        });
+
+        // Submit drawing PNG to backend
+        await service.submitDrawing(
           gameId: roomCode,
           drawingBytes: bytes ?? Uint8List(0),
         );
+        // Will stay on waiting overlay until game:results socket event triggers navigation
       } else {
         result = await service.evaluateSoloDrawing(
           prompt: _currentPrompt,
           drawingBytes: bytes ?? Uint8List(0),
         );
-      }
 
-      if (mounted) {
-        Navigator.pushReplacementNamed(
-          context,
-          '/results',
-          arguments: {
-            'score': result.score,
-            'grade': result.grade,
-            'confidence': result.confidence,
-            'explanation': result.explanation,
-            'labels': result.labels,
-            'objectRecognitionScore': result.objectRecognitionScore,
-            'requiredFeaturesScore': result.requiredFeaturesScore,
-            'compositionScore': result.compositionScore,
-            'creativityScore': result.creativityScore,
-            'strokeQualityScore': result.strokeQualityScore,
-            'strengths': result.strengths,
-            'weaknesses': result.weaknesses,
-            'prompt': _currentPrompt,
-            'isMultiplayer': _isMultiplayer,
-            'gameId': roomCode,
-            'isSinglePlayerChallenge': _isSinglePlayerChallenge,
-            'currentRound': _currentRound,
-            'totalRounds': _totalRounds,
-            'cumulativeScore': _cumulativeScore + result.score,
-          },
-        );
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            '/results',
+            arguments: {
+              'score': result.score,
+              'grade': result.grade,
+              'confidence': result.confidence,
+              'explanation': result.explanation,
+              'labels': result.labels,
+              'objectRecognitionScore': result.objectRecognitionScore,
+              'requiredFeaturesScore': result.requiredFeaturesScore,
+              'compositionScore': result.compositionScore,
+              'creativityScore': result.creativityScore,
+              'strokeQualityScore': result.strokeQualityScore,
+              'strengths': result.strengths,
+              'weaknesses': result.weaknesses,
+              'prompt': _currentPrompt,
+              'isMultiplayer': false,
+              'isSinglePlayerChallenge': _isSinglePlayerChallenge,
+              'currentRound': _currentRound,
+              'totalRounds': _totalRounds,
+              'cumulativeScore': _cumulativeScore + result.score,
+            },
+          );
+        }
       }
     } catch (e) {
       debugPrint('[DrawingScreen] Evaluation error: $e');
@@ -546,10 +606,54 @@ class _DrawingScreenState extends State<DrawingScreen> {
               ],
             ),
 
-            // Evaluating overlay with Inky Mascot
-            if (_isEvaluating)
+            // 3-Second Countdown Overlay
+            if (_isCountdown)
               Container(
-                color: Colors.black.withOpacity(0.6),
+                color: Colors.black.withOpacity(0.75),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'PROMPT',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.mint,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _currentPrompt.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      AnimatedScale(
+                        scale: _countdownNum > 0 ? 1.2 : 1.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: Text(
+                          _countdownNum > 0 ? '$_countdownNum' : 'DRAW!',
+                          style: TextStyle(
+                            fontSize: 72,
+                            fontWeight: FontWeight.w900,
+                            color: _countdownNum > 0 ? AppColors.coral : AppColors.mint,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Evaluating & Waiting overlay
+            if (_isEvaluating || _waitingForOpponent)
+              Container(
+                color: Colors.black.withOpacity(0.7),
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: AppTheme.space32, vertical: AppTheme.space24),
@@ -566,12 +670,17 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         ),
                         const SizedBox(height: AppTheme.space16),
                         Text(
-                          _evaluatingMessages[_evaluatingMsgIndex],
+                          _waitingForOpponent
+                              ? 'Waiting for opponent & AI evaluation...'
+                              : _evaluatingMessages[_evaluatingMsgIndex],
                           style: Theme.of(context).textTheme.headlineMedium,
+                          textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: AppTheme.space4),
                         Text(
-                          'Evaluating prompt: "$_currentPrompt"',
+                          _opponentFinished
+                              ? '$_opponentFinishedName submitted their drawing!'
+                              : 'Evaluating prompt: "$_currentPrompt"',
                           style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                       ],

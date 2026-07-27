@@ -107,10 +107,41 @@ export async function submitDrawing(req, res, next) {
       // Finalize game with scores
       await gameService.finalizeGame(gameId, scores);
 
-      // Emit results
+      // Build drawings map with base64 images for side-by-side comparison
+      const drawingsMap = {};
+      for (const [userId, scoreData] of Object.entries(scores)) {
+        const sub = updatedSession.submissions[userId];
+        const base64Img = sub?.drawingBuffer
+          ? `data:image/png;base64,${Buffer.from(sub.drawingBuffer).toString('base64')}`
+          : null;
+
+        drawingsMap[userId] = {
+          userId,
+          displayName: scoreData.displayName || 'Player',
+          score: scoreData.score,
+          grade: scoreData.grade,
+          breakdown: scoreData.breakdown,
+          explanation: scoreData.explanation,
+          strengths: scoreData.strengths || [],
+          weaknesses: scoreData.weaknesses || [],
+          imageData: base64Img,
+        };
+      }
+
+      // Emit results to all players in the room
       const rankings = rankPlayers(scores);
+      const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
+      const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
+      const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
+
       if (io) {
-        io.to(gameId).emit('game:results', { rankings, prompt: session.prompt });
+        io.to(gameId).emit('game:results', {
+          gameId,
+          prompt: session.prompt,
+          rankings,
+          drawings: drawingsMap,
+          winnerId,
+        });
       }
     }
 

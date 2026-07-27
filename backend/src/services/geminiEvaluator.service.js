@@ -199,9 +199,25 @@ export async function evaluateWithGemini(imageBuffer, drawingPrompt) {
     }
   }
 
-  // If all retries fail, throw explicit error without generating mock scores
+  // If all retries fail, return a structured status with exact message without crashing process
   logger.error(`All Gemini AI evaluation attempts failed for prompt "${drawingPrompt}". Error: ${lastError?.message}`);
-  throw new Error('The AI evaluation service is temporarily unavailable. Please try again in a moment.');
+  return {
+    unavailable: true,
+    error: 'AI evaluation is temporarily unavailable. Please try again.',
+    similarityScore: 0,
+    objectRecognitionScore: 0,
+    requiredFeaturesScore: 0,
+    compositionScore: 0,
+    creativityScore: 0,
+    strokeQualityScore: 0,
+    reasoning: 'AI evaluation is temporarily unavailable. Please try again.',
+    labels: [],
+    accuracy: 0,
+    missingElements: [],
+    strengths: [],
+    weaknesses: [],
+    grade: 'F',
+  };
 }
 
 function gradeFromScore(score) {

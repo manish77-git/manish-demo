@@ -101,6 +101,9 @@ class _ResultsScreenState extends State<ResultsScreen>
 
         _isMultiplayer = args['isMultiplayer'] == true;
         _gameId = args['gameId'] as String?;
+        if (args.containsKey('drawingsData') && args['drawingsData'] is Map<String, dynamic>) {
+          _drawingsData = args['drawingsData'] as Map<String, dynamic>;
+        }
 
         _isSinglePlayerChallenge = args['isSinglePlayerChallenge'] == true;
         _currentRound = args['currentRound'] as int? ?? 1;
@@ -874,18 +877,10 @@ class _ResultsScreenState extends State<ResultsScreen>
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               color: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey[100],
-                              child: Image.network(
+                              child: _buildDrawingImageWidget(
+                                myUid,
                                 '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$myUid',
-                                fit: BoxFit.contain,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Center(
-                                    child: Icon(
-                                      LucideIcons.imageOff,
-                                      color: textColor.withOpacity(0.3),
-                                      size: 32,
-                                    ),
-                                  );
-                                },
+                                textColor,
                               ),
                             ),
                           ),
@@ -934,18 +929,10 @@ class _ResultsScreenState extends State<ResultsScreen>
                             child: Container(
                               color: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey[100],
                               child: opponentId.isNotEmpty
-                                  ? Image.network(
+                                  ? _buildDrawingImageWidget(
+                                      opponentId,
                                       '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$opponentId',
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Center(
-                                          child: Icon(
-                                            LucideIcons.imageOff,
-                                            color: textColor.withOpacity(0.3),
-                                            size: 32,
-                                          ),
-                                        );
-                                      },
+                                      textColor,
                                     )
                                   : Center(
                                       child: Text(
@@ -978,18 +965,37 @@ class _ResultsScreenState extends State<ResultsScreen>
               ];
 
               return isWide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: childWidget,
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: childWidget,
-                    );
+                  ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: childWidget)
+                  : Column(children: childWidget);
             },
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDrawingImageWidget(String uid, String fallbackUrl, Color textColor) {
+    try {
+      final imgDataStr = _drawingsData?['drawings']?[uid]?['imageData'] as String?;
+      if (imgDataStr != null && imgDataStr.startsWith('data:image')) {
+        final base64Part = imgDataStr.split(',').last;
+        final bytes = base64Decode(base64Part);
+        return Image.memory(bytes, fit: BoxFit.contain);
+      }
+    } catch (_) {}
+
+    return Image.network(
+      fallbackUrl,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) {
+        return Center(
+          child: Icon(
+            LucideIcons.imageOff,
+            color: textColor.withOpacity(0.3),
+            size: 32,
+          ),
+        );
+      },
     );
   }
 

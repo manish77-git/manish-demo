@@ -175,47 +175,10 @@ async function bootstrap() {
       }
     });
 
-    // ─── Real-Time Canvas / Drawing Synchronization ───────
-    socket.on('drawing:stroke', (data) => {
-      const { roomCode, strokes } = data || {};
-      const actualRoomCode = roomCode || socket.roomCode;
-      if (!actualRoomCode || !socket.userId) return;
+    // ─── Real-Time Private Canvas System ─────────────────
+    // Stroke synchronization removed to ensure 100% canvas privacy per player.
 
-      // Save drawing state in memory to preserve progress for reconnects
-      lobbyManager.saveStrokes(actualRoomCode, socket.userId, strokes);
-
-      // Broadcast to all other players in the room
-      socket.to(actualRoomCode).emit('drawing:stroke', {
-        userId: socket.userId,
-        strokes,
-      });
-    });
-
-    socket.on('drawing:clear', (data) => {
-      const { roomCode } = data || {};
-      const actualRoomCode = roomCode || socket.roomCode;
-      if (!actualRoomCode || !socket.userId) return;
-
-      lobbyManager.saveStrokes(actualRoomCode, socket.userId, []);
-
-      socket.to(actualRoomCode).emit('drawing:clear', {
-        userId: socket.userId,
-      });
-    });
-
-    socket.on('drawing:cursor', (data) => {
-      const { roomCode, x, y } = data || {};
-      const actualRoomCode = roomCode || socket.roomCode;
-      if (!actualRoomCode || !socket.userId) return;
-
-      socket.to(actualRoomCode).emit('drawing:cursor', {
-        userId: socket.userId,
-        x,
-        y,
-      });
-    });
-
-    // ─── Match Start (Round 1) ────────────────────────────
+    // ─── Match Start (Round 1 with 3s Countdown) ──────────
     socket.on('match:start', async (data) => {
       const { roomCode, difficulty, category, duration } = data || {};
       const actualRoomCode = roomCode || socket.roomCode;
@@ -277,12 +240,24 @@ async function bootstrap() {
         logger.error(`Failed to initialize game session: ${err.message}`);
       }
 
-      io.to(actualRoomCode).emit('match:start', {
+      // Emit 3-second countdown signal first
+      io.to(actualRoomCode).emit('match:countdown', {
+        countdownSeconds: 3,
         prompt: selectedPrompt,
         duration: activeSettings.duration,
         currentRound: 1,
         totalRounds: activeSettings.rounds || 3,
       });
+
+      // Emit start_drawing after countdown
+      setTimeout(() => {
+        io.to(actualRoomCode).emit('match:start', {
+          prompt: selectedPrompt,
+          duration: activeSettings.duration,
+          currentRound: 1,
+          totalRounds: activeSettings.rounds || 3,
+        });
+      }, 3000);
     });
 
     // ─── Match: Next Round ────────────────────────────────
