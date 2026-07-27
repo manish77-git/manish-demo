@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
 import '../../services/prompt_service.dart';
 import '../../services/audio_service.dart';
+import '../../services/api_service.dart';
 import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../widgets/doodle_painter.dart';
@@ -307,6 +308,71 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     Navigator.pushNamed(context, '/lobby');
   }
 
+  void _showServerConfigDialog(BuildContext context, SocketProvider socket) {
+    final controller = TextEditingController(text: ApiConfig.serverUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Server Connection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Current Status: ${socket.isConnected ? 'CONNECTED' : 'DISCONNECTED'}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: socket.isConnected ? AppColors.mint : AppColors.coral,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'http://localhost:3000',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                ActionChip(
+                  label: const Text('Localhost'),
+                  onPressed: () {
+                    controller.text = 'http://localhost:3000';
+                  },
+                ),
+                ActionChip(
+                  label: const Text('Railway'),
+                  onPressed: () {
+                    controller.text = 'https://draw-battle-backend-production.up.railway.app';
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              socket.updateServerUrl(controller.text.trim());
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Connecting to ${controller.text.trim()}...')),
+              );
+            },
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -427,35 +493,41 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           const Spacer(),
 
           // Socket Status Indicator
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: socket.isConnected
-                  ? AppColors.mint.withValues(alpha: 0.15)
-                  : AppColors.coral.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(
-                    color: socket.isConnected ? AppColors.mint : AppColors.coral,
-                    shape: BoxShape.circle,
+          GestureDetector(
+            onTap: () {
+              AudioService().playClick();
+              _showServerConfigDialog(context, socket);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: socket.isConnected
+                    ? AppColors.mint.withValues(alpha: 0.15)
+                    : AppColors.coral.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(
+                      color: socket.isConnected ? AppColors.mint : AppColors.coral,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  socket.isConnected ? 'ONLINE' : 'OFFLINE',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    color: socket.isConnected ? AppColors.mint : AppColors.coral,
-                    letterSpacing: 0.5,
+                  const SizedBox(width: 6),
+                  Text(
+                    socket.isConnected ? 'ONLINE' : 'OFFLINE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: socket.isConnected ? AppColors.mint : AppColors.coral,
+                      letterSpacing: 0.5,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 12),

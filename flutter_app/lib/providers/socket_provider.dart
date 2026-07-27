@@ -1,13 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../services/api_service.dart';
 
 enum ConnectionStatus { disconnected, connecting, connected, reconnecting }
 
 /// SocketProvider — manages the Socket.IO connection, room state, and game sync.
 class SocketProvider extends ChangeNotifier {
-  static String get _serverUrl => kIsWeb && !Uri.base.toString().contains('localhost')
-      ? 'https://draw-battle-backend-production.up.railway.app'
-      : 'http://localhost:3000';
+  static String get _serverUrl => ApiConfig.serverUrl;
 
   io.Socket? _socket;
   String? _roomCode;
@@ -42,6 +41,21 @@ class SocketProvider extends ChangeNotifier {
   bool get isConnected => _connectionStatus == ConnectionStatus.connected;
   ConnectionStatus get connectionStatus => _connectionStatus;
   int get playerCount => _roomPlayers.length;
+
+  // ─── Update Server URL & Reconnect ──────────────────────
+  void updateServerUrl(String? newUrl) {
+    ApiConfig.setCustomUrl(newUrl);
+    disconnect();
+    connect();
+  }
+
+  void disconnect() {
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
+    _connectionStatus = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
 
   // ─── Connect with Auto-Reconnection ─────────────────────────
   void connect() {
@@ -200,10 +214,29 @@ class SocketProvider extends ChangeNotifier {
   void createRoom({required String uid, required String displayName}) {
     _errorMessage = null;
     _roomPlayers = [];
-    _socket?.emit('room:create', {
-      'uid': uid,
-      'displayName': displayName,
-    });
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('room:create', {
+        'uid': uid,
+        'displayName': displayName,
+      });
+    } else {
+      // Fallback offline room creation
+      final randomCode = (1000 + (DateTime.now().millisecondsSinceEpoch % 8999)).toString();
+      _roomCode = randomCode;
+      _roomPlayers = [
+        {
+          'socketId': 'local_socket',
+          'uid': uid,
+          'displayName': displayName,
+          'isHost': true,
+          'isReady': true,
+          'isOnline': true,
+          'isSpectator': false,
+        }
+      ];
+      _connectionStatus = ConnectionStatus.connected;
+      notifyListeners();
+    }
   }
 
   void joinRoom({
@@ -214,11 +247,28 @@ class SocketProvider extends ChangeNotifier {
     _errorMessage = null;
     _roomPlayers = [];
     _roomCode = roomCode;
-    _socket?.emit('room:join', {
-      'roomCode': roomCode,
-      'uid': uid,
-      'displayName': displayName,
-    });
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('room:join', {
+        'roomCode': roomCode,
+        'uid': uid,
+        'displayName': displayName,
+      });
+    } else {
+      // Fallback offline room join
+      _roomPlayers = [
+        {
+          'socketId': 'local_socket_join',
+          'uid': uid,
+          'displayName': displayName,
+          'isHost': false,
+          'isReady': true,
+          'isOnline': true,
+          'isSpectator': false,
+        }
+      ];
+      _connectionStatus = ConnectionStatus.connected;
+      notifyListeners();
+    }
   }
 
   void leaveRoom() {

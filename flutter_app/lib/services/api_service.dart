@@ -6,7 +6,20 @@ import 'retry_helper.dart';
 
 /// Configuration for backend API
 class ApiConfig {
+  static String? _customUrl;
+
+  static void setCustomUrl(String? url) {
+    if (url != null && url.trim().isNotEmpty) {
+      _customUrl = url.trim();
+    } else {
+      _customUrl = null;
+    }
+  }
+
   static String get serverUrl {
+    if (_customUrl != null && _customUrl!.isNotEmpty) {
+      return _customUrl!;
+    }
     if (kIsWeb && !Uri.base.toString().contains('localhost')) {
       return 'https://draw-battle-backend-production.up.railway.app';
     }
