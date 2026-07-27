@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 
 enum DrawingToolType {
@@ -44,6 +45,14 @@ class DrawingStroke {
   final bool isEraser;
   final bool isShape;
   final bool isFilled;
+  final Uint8List? fillImageData;
+  final double fillCanvasWidth;
+  final double fillCanvasHeight;
+
+  // Cached decoded ui.Image for rendering fill strokes (not serialised)
+  ui.Image? _cachedFillImage;
+  ui.Image? get cachedFillImage => _cachedFillImage;
+  set cachedFillImage(ui.Image? img) => _cachedFillImage = img;
 
   DrawingStroke({
     required this.points,
@@ -55,10 +64,13 @@ class DrawingStroke {
     this.isEraser = false,
     this.isShape = false,
     this.isFilled = false,
+    this.fillImageData,
+    this.fillCanvasWidth = 0,
+    this.fillCanvasHeight = 0,
   });
 
   Map<String, dynamic> toJson() {
-    return {
+    final map = <String, dynamic>{
       'points': points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
       'color': color.toARGB32(),
       'strokeWidth': strokeWidth,
@@ -69,6 +81,12 @@ class DrawingStroke {
       'isShape': isShape,
       'isFilled': isFilled,
     };
+    if (fillImageData != null) {
+      map['fillImageData'] = base64Encode(fillImageData!);
+      map['fillCanvasWidth'] = fillCanvasWidth;
+      map['fillCanvasHeight'] = fillCanvasHeight;
+    }
+    return map;
   }
 
   factory DrawingStroke.fromJson(Map<String, dynamic> json) {
@@ -78,6 +96,11 @@ class DrawingStroke {
         .toList();
 
     final colorVal = json['color'] as int;
+
+    Uint8List? fillData;
+    if (json['fillImageData'] != null) {
+      fillData = base64Decode(json['fillImageData'] as String);
+    }
 
     return DrawingStroke(
       points: points,
@@ -92,6 +115,9 @@ class DrawingStroke {
       isEraser: json['isEraser'] as bool? ?? false,
       isShape: json['isShape'] as bool? ?? false,
       isFilled: json['isFilled'] as bool? ?? false,
+      fillImageData: fillData,
+      fillCanvasWidth: (json['fillCanvasWidth'] as num?)?.toDouble() ?? 0,
+      fillCanvasHeight: (json['fillCanvasHeight'] as num?)?.toDouble() ?? 0,
     );
   }
 
@@ -105,6 +131,9 @@ class DrawingStroke {
     bool? isEraser,
     bool? isShape,
     bool? isFilled,
+    Uint8List? fillImageData,
+    double? fillCanvasWidth,
+    double? fillCanvasHeight,
   }) {
     return DrawingStroke(
       points: points ?? this.points,
@@ -116,6 +145,9 @@ class DrawingStroke {
       isEraser: isEraser ?? this.isEraser,
       isShape: isShape ?? this.isShape,
       isFilled: isFilled ?? this.isFilled,
+      fillImageData: fillImageData ?? this.fillImageData,
+      fillCanvasWidth: fillCanvasWidth ?? this.fillCanvasWidth,
+      fillCanvasHeight: fillCanvasHeight ?? this.fillCanvasHeight,
     );
   }
 }
@@ -303,7 +335,7 @@ class DrawingProvider extends ChangeNotifier {
     );
   }
 
-  void startStroke(Offset point) {
+  void startStroke(Offset point, {Size? canvasSize}) {
     _redoStack.clear();
     final snappedPoint = _applyGridSnap(point);
 
@@ -313,17 +345,8 @@ class DrawingProvider extends ChangeNotifier {
     }
 
     if (_currentTool == DrawingToolType.fill) {
-      // Paint Bucket: fill canvas or create a filled background rect
-      _strokes.add(DrawingStroke(
-        points: [Offset.zero, const Offset(2000, 2000)],
-        color: _currentColor,
-        strokeWidth: 0,
-        toolType: DrawingToolType.rectangle,
-        opacity: _opacity,
-        isFilled: true,
-      ));
-      _triggerSync();
-      notifyListeners();
+      // Real flood-fill: rasterise canvas at actual size, scanline fill at tap point
+      _performFloodFill(snappedPoint, canvasSize ?? const Size(400, 400));
       return;
     }
 
@@ -556,6 +579,26 @@ class DrawingProvider extends ChangeNotifier {
 
       // Draw all strokes
       for (final stroke in _strokes) {
+        // Handle fill-image strokes
+        if (stroke.fillImageData != null) {
+          try {
+            final codec = await ui.instantiateImageCodec(stroke.fillImageData!);
+            final frame = await codec.getNextFrame();
+            final img = frame.image;
+            if (stroke.fillCanvasWidth > 0 && stroke.fillCanvasHeight > 0) {
+              canvas.drawImageRect(
+                img,
+                Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+                Rect.fromLTWH(0, 0, stroke.fillCanvasWidth, stroke.fillCanvasHeight),
+                Paint(),
+              );
+            } else {
+              canvas.drawImage(img, Offset.zero, Paint());
+            }
+          } catch (_) {}
+          continue;
+        }
+
         final paint = Paint()
           ..color = stroke.isEraser
               ? Colors.white
@@ -730,5 +773,236 @@ class DrawingProvider extends ChangeNotifier {
     _snapGrid = false;
     _selectedStrokeIndex = null;
     notifyListeners();
+  }
+
+  // ─── FLOOD FILL IMPLEMENTATION ───────────────────────────
+
+  /// Perform a real scanline flood fill on the rasterised canvas at exact dimensions.
+  Future<void> _performFloodFill(Offset tapPoint, Size canvasSize) async {
+    try {
+      // 1. Rasterise current canvas to pixel buffer at actual logical size
+      final fillWidth = canvasSize.width.toInt().clamp(50, 2000);
+      final fillHeight = canvasSize.height.toInt().clamp(50, 2000);
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+
+      // Draw white background
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, fillWidth.toDouble(), fillHeight.toDouble()),
+        Paint()..color = Colors.white,
+      );
+
+      // Draw existing strokes at exact 1:1 coordinates
+      for (final stroke in _strokes) {
+        if (stroke.fillImageData != null) {
+          // Draw cached fill images
+          try {
+            final codec = await ui.instantiateImageCodec(stroke.fillImageData!);
+            final frame = await codec.getNextFrame();
+            final img = frame.image;
+            canvas.drawImageRect(
+              img,
+              Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+              Rect.fromLTWH(0, 0, stroke.fillCanvasWidth > 0 ? stroke.fillCanvasWidth : fillWidth.toDouble(),
+                  stroke.fillCanvasHeight > 0 ? stroke.fillCanvasHeight : fillHeight.toDouble()),
+              Paint(),
+            );
+          } catch (_) {}
+          continue;
+        }
+
+        final paint = Paint()
+          ..color = stroke.isEraser ? Colors.white : stroke.color.withValues(alpha: stroke.opacity)
+          ..strokeWidth = stroke.strokeWidth
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = stroke.isFilled ? PaintingStyle.fill : PaintingStyle.stroke
+          ..isAntiAlias = true;
+
+        if (stroke.isShape && stroke.points.length >= 2) {
+          _drawShape(canvas, stroke, paint);
+        } else {
+          canvas.drawPath(_createPathForStroke(stroke), paint);
+        }
+      }
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(fillWidth, fillHeight);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) return;
+
+      final pixels = byteData.buffer.asUint8List();
+      final width = fillWidth;
+      final height = fillHeight;
+
+      // 2. Get tap pixel coordinates
+      final px = tapPoint.dx.round().clamp(0, width - 1);
+      final py = tapPoint.dy.round().clamp(0, height - 1);
+
+      // 3. Get target colour at tap point
+      final targetIdx = (py * width + px) * 4;
+      final targetR = pixels[targetIdx];
+      final targetG = pixels[targetIdx + 1];
+      final targetB = pixels[targetIdx + 2];
+      final targetA = pixels[targetIdx + 3];
+
+      // Fill colour
+      final fillR = _currentColor.red;
+      final fillG = _currentColor.green;
+      final fillB = _currentColor.blue;
+      final fillA = (_opacity * 255).round();
+
+      // If target is already the fill colour, skip
+      if (_colorDistance(targetR, targetG, targetB, targetA, fillR, fillG, fillB, fillA) < 10) {
+        return;
+      }
+
+      // 4. Scanline flood fill with adaptive anti-alias tolerance
+      const tolerance = 45; // Color distance threshold for outline boundaries
+      final filled = Uint8List(width * height); // 0 = unfilled, 1 = filled
+      final stack = <int>[];
+      stack.add(py * width + px);
+
+      while (stack.isNotEmpty) {
+        final pos = stack.removeLast();
+        final cx = pos % width;
+        final cy = pos ~/ width;
+
+        if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue;
+        if (filled[pos] == 1) continue;
+
+        final idx = pos * 4;
+        final r = pixels[idx];
+        final g = pixels[idx + 1];
+        final b = pixels[idx + 2];
+        final a = pixels[idx + 3];
+
+        if (_colorDistance(r, g, b, a, targetR, targetG, targetB, targetA) > tolerance) continue;
+
+        filled[pos] = 1;
+
+        // Scanline: fill left
+        int left = cx - 1;
+        while (left >= 0) {
+          final lpos = cy * width + left;
+          if (filled[lpos] == 1) break;
+          final li = lpos * 4;
+          if (_colorDistance(pixels[li], pixels[li + 1], pixels[li + 2], pixels[li + 3],
+                  targetR, targetG, targetB, targetA) > tolerance) break;
+          filled[lpos] = 1;
+          left--;
+        }
+        left++;
+
+        // Scanline: fill right
+        int right = cx + 1;
+        while (right < width) {
+          final rpos = cy * width + right;
+          if (filled[rpos] == 1) break;
+          final ri = rpos * 4;
+          if (_colorDistance(pixels[ri], pixels[ri + 1], pixels[ri + 2], pixels[ri + 3],
+                  targetR, targetG, targetB, targetA) > tolerance) break;
+          filled[rpos] = 1;
+          right++;
+        }
+        right--;
+
+        // Push rows above and below
+        for (int x = left; x <= right; x++) {
+          if (cy > 0) {
+            final upPos = (cy - 1) * width + x;
+            if (filled[upPos] == 0) stack.add(upPos);
+          }
+          if (cy < height - 1) {
+            final downPos = (cy + 1) * width + x;
+            if (filled[downPos] == 0) stack.add(downPos);
+          }
+        }
+      }
+
+      // 5. Anti-aliasing edge expansion (dilate filled area by 1px so edges meet outlines cleanly)
+      final dilated = Uint8List.fromList(filled);
+      for (int y = 1; y < height - 1; y++) {
+        for (int x = 1; x < width - 1; x++) {
+          final idx = y * width + x;
+          if (filled[idx] == 0) {
+            // If any 4-neighbor is filled, dilate into anti-aliased edge
+            if (filled[idx - 1] == 1 || filled[idx + 1] == 1 ||
+                filled[idx - width] == 1 || filled[idx + width] == 1) {
+              final pIdx = idx * 4;
+              // Only dilate if it's not a pure contrasting line color
+              if (_colorDistance(pixels[pIdx], pixels[pIdx + 1], pixels[pIdx + 2], pixels[pIdx + 3],
+                      targetR, targetG, targetB, targetA) <= tolerance + 60) {
+                dilated[idx] = 1;
+              }
+            }
+          }
+        }
+      }
+
+      // 6. Build the fill image: only fill the marked pixels
+      final resultPixels = Uint8List(width * height * 4);
+      for (int i = 0; i < width * height; i++) {
+        if (dilated[i] == 1) {
+          resultPixels[i * 4] = fillR;
+          resultPixels[i * 4 + 1] = fillG;
+          resultPixels[i * 4 + 2] = fillB;
+          resultPixels[i * 4 + 3] = fillA;
+        } else {
+          // Transparent
+          resultPixels[i * 4] = 0;
+          resultPixels[i * 4 + 1] = 0;
+          resultPixels[i * 4 + 2] = 0;
+          resultPixels[i * 4 + 3] = 0;
+        }
+      }
+
+      // 7. Encode as PNG
+      final fillRecorder = ui.PictureRecorder();
+      final fillCanvas = Canvas(fillRecorder);
+      final codec = await ui.ImmutableBuffer.fromUint8List(resultPixels);
+      final descriptor = ui.ImageDescriptor.raw(
+        codec,
+        width: width,
+        height: height,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      final imgCodec = await descriptor.instantiateCodec();
+      final frame = await imgCodec.getNextFrame();
+      fillCanvas.drawImage(frame.image, Offset.zero, Paint());
+      final fillPicture = fillRecorder.endRecording();
+      final fillImage = await fillPicture.toImage(width, height);
+      final pngData = await fillImage.toByteData(format: ui.ImageByteFormat.png);
+
+      if (pngData == null) return;
+
+      final pngBytes = pngData.buffer.asUint8List();
+
+      // 8. Add as a fill stroke
+      _strokes.add(DrawingStroke(
+        points: [tapPoint],
+        color: _currentColor,
+        strokeWidth: 0,
+        toolType: DrawingToolType.fill,
+        opacity: _opacity,
+        fillImageData: pngBytes,
+        fillCanvasWidth: width.toDouble(),
+        fillCanvasHeight: height.toDouble(),
+      ));
+
+      _triggerSync();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[DrawingProvider] Flood fill error: $e');
+    }
+  }
+
+  /// Euclidean colour distance for flood-fill boundary detection.
+  static int _colorDistance(int r1, int g1, int b1, int a1, int r2, int g2, int b2, int a2) {
+    final dr = r1 - r2;
+    final dg = g1 - g2;
+    final db = b1 - b2;
+    final da = a1 - a2;
+    return math.sqrt(dr * dr + dg * dg + db * db + da * da).round();
   }
 }

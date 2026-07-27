@@ -169,13 +169,13 @@
       },
       "isOnline": true,
       "createdAt": "2026-07-26T06:09:58.057Z",
-      "lastOnline": "2026-07-26T06:19:31.738Z",
+      "lastOnline": "2026-07-26T06:37:45.965Z",
       "id": "token_usr_07123e1f48"
     },
     "usr_07123e1f4823": {
       "id": "usr_07123e1f4823",
-      "isOnline": true,
-      "lastOnline": "2026-07-26T06:19:34.120Z"
+      "isOnline": false,
+      "lastOnline": "2026-07-26T06:42:21.103Z"
     }
   },
   "friend_requests": {}

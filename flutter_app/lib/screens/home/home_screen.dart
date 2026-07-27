@@ -288,9 +288,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void _joinRoom() {
     AudioService().playClick();
     final code = _roomCodeController.text.trim().toUpperCase();
-    if (code.length != 6) {
+    if (code.length != 4) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid 6-character room code.')),
+        const SnackBar(content: Text('Please enter a valid 4-digit room code.')),
       );
       return;
     }
@@ -520,10 +520,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildPlayButton(bool isDark) {
-    return GestureDetector(
+    return _BounceTap(
       onTap: () {
         AudioService().playClick();
-        Navigator.pushNamed(context, '/single_player');
+        Navigator.pushNamed(context, '/mode_select');
       },
       child: Container(
         height: 64,
@@ -531,15 +531,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(LucideIcons.play, color: Colors.white, size: 24),
+            Icon(LucideIcons.play, color: Colors.white, size: 26),
             SizedBox(width: 12),
             Text(
-              'PLAY SINGLE PLAYER CHALLENGE',
+              'PLAY',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 18,
+                fontSize: 22,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 1.5,
+                letterSpacing: 2.5,
               ),
             ),
           ],
@@ -549,105 +549,68 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildGameModes(bool isDark, Color primary) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 500;
-        final cards = [
-          _GameModeData(
-            title: 'Multiplayer Lobby',
-            subtitle: 'Challenge friends in a room',
-            icon: LucideIcons.swords,
-            color: AppColors.coral,
-            onTap: () {
-              AudioService().playClick();
-              Navigator.pushNamed(context, '/lobby');
-            },
-          ),
-          _GameModeData(
-            title: 'Create Room',
-            subtitle: 'Host up to 10 players',
-            icon: LucideIcons.plusCircle,
-            color: AppColors.lavender,
+    return Row(
+      children: [
+        Expanded(
+          child: _BounceTap(
             onTap: _createRoom,
-          ),
-          _GameModeData(
-            title: 'Quick Solo Setup',
-            subtitle: 'Customize rounds & category',
-            icon: LucideIcons.sliders,
-            color: AppColors.teal,
-            onTap: _startPractice,
-          ),
-        ];
-
-        if (isWide) {
-          return Row(
-            children: cards.map((data) {
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: data == cards.last ? 0 : 12),
-                  child: _buildModeCard(data, isDark),
-                ),
-              );
-            }).toList(),
-          );
-        }
-
-        return Column(
-          children: cards.map((data) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildModeCard(data, isDark, horizontal: true),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildModeCard(_GameModeData data, bool isDark, {bool horizontal = false}) {
-    final card = Container(
-      padding: const EdgeInsets.all(AppTheme.space20),
-      decoration: AppTheme.accentCard(context, data.color),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: data.color,
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            child: Container(
+              padding: const EdgeInsets.all(AppTheme.space16),
+              decoration: AppTheme.accentCard(context, AppColors.lavender),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.lavender,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(LucideIcons.plusCircle, color: Colors.white, size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Create Room',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                  ),
+                ],
+              ),
             ),
-            child: Icon(data.icon, color: Colors.white, size: 22),
           ),
-          const SizedBox(height: AppTheme.space16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                data.title,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _BounceTap(
+            onTap: _startPractice,
+            child: Container(
+              padding: const EdgeInsets.all(AppTheme.space16),
+              decoration: AppTheme.accentCard(context, AppColors.teal),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.teal,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(LucideIcons.sliders, color: Colors.white, size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Quick Solo',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                data.subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
-                ),
-              ),
-            ],
+            ),
           ),
-        ],
-      ),
-    );
-
-    return InkWell(
-      onTap: data.onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      child: card,
+        ),
+      ],
     );
   }
+
+  // _buildModeCard removed — game mode cards replaced by simpler quick-access row
 
   Widget _buildJoinRoomCard(bool isDark, Color primary) {
     return Container(
@@ -658,8 +621,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           Expanded(
             child: TextField(
               controller: _roomCodeController,
-              textCapitalization: TextCapitalization.characters,
-              maxLength: 6,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 letterSpacing: 4,
@@ -733,22 +696,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
-class _GameModeData {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  _GameModeData({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-}
-
 class _NavButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -765,15 +712,14 @@ class _NavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      height: 50,
-      decoration: AppTheme.gameCard(context),
-      child: InkWell(
-        onTap: () {
-          AudioService().playClick();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+    return _BounceTap(
+      onTap: () {
+        AudioService().playClick();
+        onTap();
+      },
+      child: Container(
+        height: 50,
+        decoration: AppTheme.gameCard(context),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -789,6 +735,60 @@ class _NavButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Reusable bounce-on-tap widget for micro-interaction feedback.
+class _BounceTap extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+
+  const _BounceTap({required this.child, required this.onTap});
+
+  @override
+  State<_BounceTap> createState() => _BounceTapState();
+}
+
+class _BounceTapState extends State<_BounceTap>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+      reverseDuration: const Duration(milliseconds: 180),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) {
+        _ctrl.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (context, child) =>
+            Transform.scale(scale: _scale.value, child: child),
+        child: widget.child,
       ),
     );
   }

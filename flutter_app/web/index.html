@@ -29,8 +29,146 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>draw_battle</title>
+  <title>DrawBattle</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- DrawBattle Web Audio Engine -->
+  <script>
+    window.DrawBattleAudio = {
+      ctx: null,
+      volume: 0.8,
+      muted: false,
+
+      init() {
+        const unlock = () => {
+          if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) this.ctx = new AudioCtx();
+          }
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+          }
+        };
+        window.addEventListener('pointerdown', unlock, { passive: true });
+        window.addEventListener('click', unlock, { passive: true });
+        window.addEventListener('keydown', unlock, { passive: true });
+        window.addEventListener('touchstart', unlock, { passive: true });
+      },
+
+      setVolume(v) {
+        this.volume = Math.max(0, Math.min(1, v));
+      },
+
+      setMuted(m) {
+        this.muted = !!m;
+      },
+
+      playTone(freq, duration, vol, type, freqEnd) {
+        if (this.muted || this.volume <= 0) return;
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (!this.ctx) return;
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const t = this.ctx.currentTime;
+          const dur = duration || 0.05;
+          const v = (vol || 0.1) * this.volume;
+
+          osc.type = type || 'sine';
+          osc.frequency.setValueAtTime(freq || 400, t);
+          if (freqEnd && freqEnd > 0) {
+            osc.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+          }
+
+          gain.gain.setValueAtTime(v, t);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          osc.start(t);
+          osc.stop(t + dur + 0.03);
+        } catch (e) {
+          console.warn('[DrawBattleAudio] Sound error:', e);
+        }
+      },
+
+      playClick() {
+        this.playTone(420, 0.03, 0.12, 'sine', 300);
+      },
+
+      playBrushDraw() {
+        this.playTone(180, 0.02, 0.02, 'sine', 150);
+      },
+
+      playErase() {
+        this.playTone(320, 0.06, 0.04, 'triangle', 180);
+      },
+
+      playFillBucket() {
+        this.playTone(420, 0.14, 0.12, 'sine', 200);
+        setTimeout(() => this.playTone(300, 0.1, 0.08, 'sine', 150), 40);
+      },
+
+      playTick(isLowTime) {
+        if (isLowTime) {
+          this.playTone(620, 0.03, 0.15, 'sine');
+        } else {
+          this.playTone(480, 0.02, 0.06, 'sine');
+        }
+      },
+
+      playRoundStart() {
+        this.playTone(440, 0.08, 0.12, 'sine');
+        setTimeout(() => this.playTone(554, 0.08, 0.12, 'sine'), 80);
+        setTimeout(() => this.playTone(659, 0.12, 0.15, 'sine'), 160);
+      },
+
+      playRoundEnd() {
+        this.playTone(659, 0.08, 0.12, 'sine');
+        setTimeout(() => this.playTone(554, 0.08, 0.12, 'sine'), 80);
+        setTimeout(() => this.playTone(440, 0.12, 0.12, 'sine'), 160);
+      },
+
+      playCorrectReveal() {
+        this.playTone(440, 0.08, 0.12, 'sine');
+        setTimeout(() => this.playTone(659, 0.14, 0.15, 'sine'), 100);
+      },
+
+      playScoreReveal() {
+        this.playTone(587, 0.05, 0.1, 'sine');
+        setTimeout(() => this.playTone(880, 0.08, 0.12, 'sine'), 50);
+      },
+
+      playVictory() {
+        const notes = [440, 554, 659, 880];
+        notes.forEach((f, i) => {
+          setTimeout(() => this.playTone(f, i === 3 ? 0.25 : 0.08, 0.15, 'sine'), i * 100);
+        });
+      },
+
+      playDefeat() {
+        this.playTone(350, 0.25, 0.1, 'sine', 180);
+        setTimeout(() => this.playTone(260, 0.3, 0.08, 'sine', 140), 160);
+      },
+
+      playPlayerJoin() {
+        this.playTone(440, 0.08, 0.1, 'sine', 660);
+        setTimeout(() => this.playTone(660, 0.06, 0.08, 'sine', 880), 60);
+      },
+
+      playPlayerLeave() {
+        this.playTone(440, 0.1, 0.08, 'sine', 220);
+      }
+    };
+    window.DrawBattleAudio.init();
+  </script>
 </head>
 <body>
   <!--

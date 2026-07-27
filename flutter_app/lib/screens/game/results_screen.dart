@@ -12,6 +12,7 @@ import '../../widgets/confetti_painter.dart';
 import '../../widgets/doodle_painter.dart';
 import '../../widgets/mascot_painter.dart';
 import '../../services/prompt_service.dart';
+import '../../services/audio_service.dart';
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key});
@@ -106,27 +107,52 @@ class _ResultsScreenState extends State<ResultsScreen>
         _totalRounds = args['totalRounds'] as int? ?? 5;
         _cumulativeScore = args['cumulativeScore'] as int? ?? _myScore;
 
-        if (!_scoreSaved && !_isMultiplayer) {
-          _scoreSaved = true;
-          final auth = context.read<AuthProvider>();
-          final avgScore = (_currentRound > 0) ? (_cumulativeScore / _currentRound).round() : _myScore;
-          auth.saveSinglePlayerScore(
-            totalScore: _cumulativeScore,
-            roundsCount: _currentRound,
-            totalRounds: _totalRounds,
-            averageScore: avgScore,
-          );
-        }
+        _saveMatchScoreIfNeeded();
 
         _scoreAnimation = Tween<double>(begin: 0, end: _myScore.toDouble()).animate(
           CurvedAnimation(parent: _scoreController, curve: Curves.easeOutCubic),
         );
         _scoreController.forward();
+
+        // Play victory or defeat sound based on score
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (_myScore >= 60) {
+            AudioService().playVictory();
+          } else {
+            AudioService().playDefeat();
+          }
+        });
+
+        // Play score reveal when animation completes
+        _scoreController.addStatusListener((status) {
+          if (status == AnimationStatus.completed) {
+            AudioService().playScoreReveal();
+          }
+        });
       });
 
       if (_isMultiplayer && _gameId != null) {
         _fetchGameDrawings();
       }
+    }
+  }
+
+  void _saveMatchScoreIfNeeded({bool isLeavingEarly = false}) {
+    if (_scoreSaved || _isMultiplayer) return;
+
+    final isChallengeComplete = _isSinglePlayerChallenge && (_totalRounds > 0 && _currentRound >= _totalRounds);
+    final isPracticeSoloMode = !_isSinglePlayerChallenge;
+
+    if (isChallengeComplete || isPracticeSoloMode || isLeavingEarly) {
+      _scoreSaved = true;
+      final auth = context.read<AuthProvider>();
+      final avgScore = (_currentRound > 0) ? (_cumulativeScore / _currentRound).round() : _myScore;
+      auth.saveSinglePlayerScore(
+        totalScore: _cumulativeScore,
+        roundsCount: _currentRound,
+        totalRounds: _totalRounds,
+        averageScore: avgScore,
+      );
     }
   }
 
@@ -474,7 +500,10 @@ class _ResultsScreenState extends State<ResultsScreen>
                             children: [
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
+                                  onPressed: () {
+                                    _saveMatchScoreIfNeeded(isLeavingEarly: true);
+                                    Navigator.pushReplacementNamed(context, '/home');
+                                  },
                                   child: const Text('Back to Home'),
                                 ),
                               ),

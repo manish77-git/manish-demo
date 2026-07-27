@@ -8,6 +8,7 @@ import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../widgets/player_avatar.dart';
 import '../../widgets/chat_panel.dart';
+import '../../services/audio_service.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -19,6 +20,7 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   String _roomCode = '';
   final List<Map<String, dynamic>> _chatMessages = [];
+  int _lastPlayerCount = 0;
 
   final List<String> _categories = [
     'all',
@@ -184,6 +186,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final players = socketProvider.roomPlayers;
     final isDesktop = MediaQuery.of(context).size.width > 800;
     final roomCode = socketProvider.roomCode ?? _roomCode;
+
+    // Detect player joins/leaves for sound effects
+    if (players.length > _lastPlayerCount && _lastPlayerCount > 0) {
+      AudioService().playPlayerJoin();
+    } else if (players.length < _lastPlayerCount && _lastPlayerCount > 0) {
+      AudioService().playPlayerLeave();
+    }
+    _lastPlayerCount = players.length;
 
     final myUid = context.read<AuthProvider>().uid;
     final isHost = players.any((p) => p['uid'] == myUid && p['isHost'] == true);

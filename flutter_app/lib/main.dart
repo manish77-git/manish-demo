@@ -19,6 +19,7 @@ import 'providers/friends_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/home/mode_select_screen.dart';
 import 'screens/game/lobby_screen.dart';
 import 'screens/game/drawing_screen.dart';
 import 'screens/game/results_screen.dart';
@@ -67,6 +68,7 @@ class DrawBattleApp extends StatelessWidget {
                 '/': (context) => const SplashScreen(),
                 '/login': (context) => const LoginScreen(),
                 '/home': (context) => const HomeScreen(),
+                '/mode_select': (context) => const ModeSelectScreen(),
                 '/lobby': (context) => const LobbyScreen(),
                 '/drawing': (context) => const DrawingScreen(),
                 '/results': (context) => const ResultsScreen(),

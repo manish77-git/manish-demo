@@ -15,27 +15,7 @@ function getGrade(score) {
   return 'F';
 }
 
-/**
- * Build a graceful fallback result when all AI evaluations fail.
- * Returns a default C-grade score so the game always completes.
- */
-function buildFallbackResult(prompt) {
-  return {
-    similarityScore: 50,
-    objectRecognitionScore: 50,
-    requiredFeaturesScore: 50,
-    compositionScore: 50,
-    creativityScore: 50,
-    strokeQualityScore: 50,
-    reasoning: `The AI couldn't fully evaluate this drawing for "${prompt}". A default score has been applied.`,
-    labels: [prompt],
-    accuracy: 0,
-    missingElements: [],
-    strengths: ['Drawing submitted successfully'],
-    weaknesses: ['AI evaluation was unavailable'],
-    grade: 'C',
-  };
-}
+// buildFallbackResult removed — AI evaluation errors are thrown directly to prevent false/arbitrary scores.
 
 /**
  * Evaluate a single drawing against a prompt using Gemini.
@@ -89,14 +69,8 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     };
   }
 
-  // 3. Call Gemini Vision evaluation with graceful fallback
-  let aiResult;
-  try {
-    aiResult = await evaluateWithGemini(imageBuffer, prompt);
-  } catch (err) {
-    logger.error(`AI evaluation failed for "${prompt}": ${err.message}. Using fallback score.`);
-    aiResult = buildFallbackResult(prompt);
-  }
+  // 3. Call Gemini Vision evaluation
+  const aiResult = await evaluateWithGemini(imageBuffer, prompt);
 
   // 4. Calculate composite score using Gemini score as base
   const { score, breakdown } = calculateCompositeScore({

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import '../providers/drawing_provider.dart';
 import '../config/app_colors.dart';
 
@@ -39,13 +40,15 @@ class DrawingCanvas extends StatelessWidget {
               maxScale: 4.0,
               child: GestureDetector(
                 onTapDown: (details) {
-                  drawing.startStroke(details.localPosition);
+                  final box = context.findRenderObject() as RenderBox;
+                  final point = box.globalToLocal(details.globalPosition);
+                  drawing.startStroke(point, canvasSize: box.size);
                   drawing.endStroke();
                 },
                 onPanStart: (details) {
                   final box = context.findRenderObject() as RenderBox;
                   final point = box.globalToLocal(details.globalPosition);
-                  drawing.startStroke(point);
+                  drawing.startStroke(point, canvasSize: box.size);
                 },
                 onPanUpdate: (details) {
                   final box = context.findRenderObject() as RenderBox;
@@ -144,7 +147,30 @@ class _CanvasPainter extends CustomPainter {
   }
 
   void _drawStrokeWithBrush(Canvas canvas, DrawingStroke stroke, {required bool isOpponent}) {
-    if (stroke.points.isEmpty) return;
+    if (stroke.points.isEmpty && stroke.fillImageData == null) return;
+
+    // Handle fill-image strokes (flood fill results)
+    if (stroke.fillImageData != null) {
+      if (stroke.cachedFillImage != null) {
+        // Draw from cache
+        final img = stroke.cachedFillImage!;
+        final dstRect = Rect.fromLTWH(
+          0, 0,
+          stroke.fillCanvasWidth > 0 ? stroke.fillCanvasWidth : img.width.toDouble(),
+          stroke.fillCanvasHeight > 0 ? stroke.fillCanvasHeight : img.height.toDouble(),
+        );
+        canvas.drawImageRect(
+          img,
+          Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+          dstRect,
+          Paint(),
+        );
+      } else {
+        // Decode async and cache — will render on next repaint
+        _decodeFillImage(stroke);
+      }
+      return;
+    }
 
     final basePaint = Paint()
       ..color = stroke.isEraser
@@ -504,6 +530,17 @@ class _CanvasPainter extends CustomPainter {
     );
     textPainter.layout();
     textPainter.paint(canvas, Offset(cursor.dx + 8, cursor.dy - 12));
+  }
+
+  /// Decode fill image data and cache on the stroke for future paints.
+  void _decodeFillImage(DrawingStroke stroke) {
+    if (stroke.fillImageData == null) return;
+    ui.instantiateImageCodec(stroke.fillImageData!).then((codec) {
+      codec.getNextFrame().then((frame) {
+        stroke.cachedFillImage = frame.image;
+        // The next repaint will pick up the cached image
+      });
+    }).catchError((_) {});
   }
 
   @override

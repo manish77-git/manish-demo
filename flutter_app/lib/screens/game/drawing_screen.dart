@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../../models/drawing_submission.dart';
+import '../../services/audio_service.dart';
 
 const List<String> _practicePrompts = [
   'cat', 'dog', 'house', 'tree', 'sun', 'car', 'flower', 'fish',
@@ -165,13 +166,23 @@ class _DrawingScreenState extends State<DrawingScreen> {
         setState(() {
           if (_timeLeft > 0) {
             _timeLeft--;
+            // Play tick sounds
+            if (_timeLeft <= 10 && _timeLeft > 0) {
+              AudioService().playTick(isLowTime: true);
+            } else if (_timeLeft <= 30 && _timeLeft > 0 && _timeLeft % 5 == 0) {
+              AudioService().playTick();
+            }
           } else {
             _timer?.cancel();
+            AudioService().playRoundEnd();
             _handleTimeUp();
           }
         });
       }
     });
+
+    // Play round start sound
+    AudioService().playRoundStart();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final drawing = context.read<DrawingProvider>();
@@ -253,7 +264,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void _onStrokesChanged() {
     if (!mounted) return;
     final drawing = context.read<DrawingProvider>();
-    if (drawing.strokes.length != _lastStrokeCount) {
+    if (drawing.strokes.length > _lastStrokeCount) {
+      final lastStroke = drawing.strokes.last;
+      if (lastStroke.toolType == DrawingToolType.fill) {
+        AudioService().playFillBucket();
+      } else if (lastStroke.isEraser) {
+        AudioService().playErase();
+      } else {
+        AudioService().playBrushDraw();
+      }
+      _lastStrokeCount = drawing.strokes.length;
+      _triggerLiveAnalysisDebounced();
+    } else if (drawing.strokes.length != _lastStrokeCount) {
       _lastStrokeCount = drawing.strokes.length;
       _triggerLiveAnalysisDebounced();
     }
@@ -407,14 +429,52 @@ class _DrawingScreenState extends State<DrawingScreen> {
       debugPrint('[DrawingScreen] Evaluation error: $e');
       if (mounted) {
         setState(() => _isEvaluating = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error evaluating drawing: ${e.toString()}'),
-            backgroundColor: AppColors.coral,
-          ),
-        );
+        _showEvaluationErrorDialog();
       }
     }
+  }
+
+  void _showEvaluationErrorDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDark ? AppColors.cardDark : AppColors.cardLight,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLarge)),
+          title: const Row(
+            children: [
+              Icon(LucideIcons.alertCircle, color: AppColors.coral, size: 24),
+              SizedBox(width: 10),
+              Text('Evaluation Error', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            ],
+          ),
+          content: const Text(
+            'AI evaluation failed. Please try again.',
+            style: TextStyle(fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _handleSubmit();
+              },
+              icon: const Icon(LucideIcons.rotateCw, size: 16, color: Colors.white),
+              label: const Text('Retry Evaluation', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.coral,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

@@ -134,12 +134,22 @@ export async function evaluateWithGemini(imageBuffer, drawingPrompt) {
       try {
         const parsed = await callGeminiApi(imageBuffer, drawingPrompt, model);
 
-        // Validate and clamp score values
-        const objectRecognitionScore = Math.max(0, Math.min(100, Math.round(Number(parsed.objectRecognitionScore) || 75)));
-        const requiredFeaturesScore = Math.max(0, Math.min(100, Math.round(Number(parsed.requiredFeaturesScore) || 75)));
-        const compositionScore = Math.max(0, Math.min(100, Math.round(Number(parsed.compositionScore) || 75)));
-        const creativityScore = Math.max(0, Math.min(100, Math.round(Number(parsed.creativityScore) || 70)));
-        const strokeQualityScore = Math.max(0, Math.min(100, Math.round(Number(parsed.strokeQualityScore) || 75)));
+        // Validate score values strictly without arbitrary defaults
+        const objRec = Number(parsed.objectRecognitionScore);
+        const reqFeat = Number(parsed.requiredFeaturesScore);
+        const comp = Number(parsed.compositionScore);
+        const creat = Number(parsed.creativityScore);
+        const strokeQ = Number(parsed.strokeQualityScore);
+
+        if (isNaN(objRec) || isNaN(reqFeat) || isNaN(comp) || isNaN(creat) || isNaN(strokeQ)) {
+          throw new Error('Gemini response missing numeric score fields');
+        }
+
+        const objectRecognitionScore = Math.max(0, Math.min(100, Math.round(objRec)));
+        const requiredFeaturesScore = Math.max(0, Math.min(100, Math.round(reqFeat)));
+        const compositionScore = Math.max(0, Math.min(100, Math.round(comp)));
+        const creativityScore = Math.max(0, Math.min(100, Math.round(creat)));
+        const strokeQualityScore = Math.max(0, Math.min(100, Math.round(strokeQ)));
 
         const compositeScore = Math.round(
           (objectRecognitionScore * 0.40) +

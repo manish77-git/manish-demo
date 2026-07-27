@@ -113,6 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (val) {
                             setState(() => _audio.isMuted = !val);
                             _audio.playClick();
+                            _audio.savePreferences();
                           },
                         ),
                       ],
@@ -135,6 +136,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onChanged: (val) {
                               setState(() => _audio.sfxVolume = val);
                             },
+                            onChangeEnd: (val) {
+                              _audio.savePreferences();
+                            },
                           ),
                         ),
                         Text(
@@ -142,6 +146,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: TextStyle(fontWeight: FontWeight.w700, color: textMuted, fontSize: 13),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Test Sound button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          _audio.playClick();
+                        },
+                        icon: const Icon(LucideIcons.volume1, size: 16),
+                        label: const Text('Test Sound', style: TextStyle(fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: primary,
+                          side: BorderSide(color: primary.withOpacity(0.3)),
+                        ),
+                      ),
                     ),
                   ],
                 ),
