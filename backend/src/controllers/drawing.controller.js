@@ -1,6 +1,6 @@
 import multer from 'multer';
 import * as gameService from '../services/gameSession.service.js';
-import { evaluateDrawing } from '../services/aiEvaluation.service.js';
+import { evaluateDrawing, evaluateAllDrawings } from '../services/aiEvaluation.service.js';
 import { rankPlayers } from '../services/scoring.service.js';
 import { analyzeLiveWithGemini } from '../services/geminiEvaluator.service.js';
 import logger from '../utils/logger.js';
@@ -19,6 +19,94 @@ const upload = multer({
 });
 
 export const uploadMiddleware = upload.single('drawing');
+
+/**
+ * Triggers match evaluation, evaluates all drawings in parallel, saves scores, calculates winner, and emits results.
+ */
+export async function triggerMatchEvaluation(gameId, io) {
+  const canEvaluate = await gameService.transitionToEvaluating(gameId);
+  if (!canEvaluate) {
+    logger.info(`Match evaluation already in progress or completed for game ${gameId}`);
+    return;
+  }
+
+  logger.info(`[LOG] Evaluation started for game ${gameId}`);
+  if (io) {
+    io.to(gameId).emit('game:status', { status: 'evaluating', gameId });
+  }
+
+  const session = await gameService.getGameSession(gameId);
+  const submissions = session.submissions || {};
+
+  // Evaluate all drawings in parallel
+  const evalResults = await evaluateAllDrawings(
+    submissions,
+    session.prompt,
+    session.drawingTimeSeconds,
+    session.startedAt
+  );
+
+  const scores = {};
+  for (const [userId, evalData] of Object.entries(evalResults)) {
+    const player = session.players.find(p => p.userId === userId);
+    scores[userId] = {
+      ...evalData,
+      displayName: player?.displayName || 'Player',
+      photoUrl: player?.photoUrl || null,
+      prompt: session.prompt,
+    };
+  }
+
+  // Finalize game with scores in DB
+  await gameService.finalizeGame(gameId, scores);
+  logger.info(`[LOG] Scores saved to DB for game ${gameId}`);
+
+  // Build drawings map with base64 images for side-by-side comparison
+  const drawingsMap = {};
+  for (const [userId, scoreData] of Object.entries(scores)) {
+    const sub = submissions[userId];
+    let base64Img = null;
+    if (sub?.drawingBuffer) {
+      const buf = Buffer.isBuffer(sub.drawingBuffer)
+        ? sub.drawingBuffer
+        : (sub.drawingBuffer.type === 'Buffer' ? Buffer.from(sub.drawingBuffer.data) : Buffer.from(sub.drawingBuffer));
+      base64Img = `data:image/png;base64,${buf.toString('base64')}`;
+    }
+
+    drawingsMap[userId] = {
+      userId,
+      displayName: scoreData.displayName || 'Player',
+      score: scoreData.score,
+      grade: scoreData.grade,
+      breakdown: scoreData.breakdown,
+      explanation: scoreData.explanation,
+      strengths: scoreData.strengths || [],
+      weaknesses: scoreData.weaknesses || [],
+      imageData: base64Img,
+    };
+  }
+
+  // Calculate winner
+  const rankings = rankPlayers(scores);
+  const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
+  const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
+  const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
+  logger.info(`[LOG] Winner calculated for game ${gameId}: ${winnerId}`);
+
+  // Emit results to all players immediately
+  if (io) {
+    io.to(gameId).emit('game:results', {
+      gameId,
+      prompt: session.prompt,
+      rankings,
+      drawings: drawingsMap,
+      winnerId,
+    });
+    logger.info(`[LOG] Results screen opened / emitted via socket for game ${gameId}`);
+  }
+
+  return { rankings, drawingsMap, winnerId };
+}
 
 /**
  * POST /api/drawings/submit — Submit a drawing for evaluation.
@@ -40,10 +128,10 @@ export async function submitDrawing(req, res, next) {
       });
     }
 
-    // Get game session to verify state and get prompt
+    // Get game session to verify state
     const session = await gameService.getGameSession(gameId);
 
-    if (session.status !== 'drawing') {
+    if (session.status !== 'drawing' && session.status !== 'evaluating') {
       return res.status(400).json({
         success: false,
         error: { message: 'Game is not in drawing phase' },
@@ -53,107 +141,33 @@ export async function submitDrawing(req, res, next) {
     // Record submission
     const { allSubmitted } = await gameService.submitDrawing(gameId, req.user.uid, {
       drawingBuffer: req.file.buffer,
-      drawingUrl: null, // Would upload to Firebase Storage in production
+      drawingUrl: null,
     });
 
-    // Evaluate this drawing immediately
-    const startTime = new Date(session.startedAt).getTime();
-    const timeTaken = Math.round((Date.now() - startTime) / 1000);
+    logger.info(`[LOG] Player submitted: ${req.user.uid} (${req.user.displayName})`);
 
-    const evaluation = await evaluateDrawing(req.file.buffer, session.prompt, {
-      drawingTimeSeconds: session.drawingTimeSeconds,
-      timeTakenSeconds: Math.min(timeTaken, session.drawingTimeSeconds),
-    });
-
-    // Emit score to the player
     const io = req.app.get('io');
     if (io) {
       io.to(gameId).emit('drawing:submitted', {
         userId: req.user.uid,
         displayName: req.user.displayName,
       });
+      logger.info(`[LOG] Opponent submitted notification sent for ${req.user.uid}`);
     }
 
-    // If all players submitted, finalize the game
+    // If all players submitted, immediately trigger parallel evaluation
     if (allSubmitted) {
-      logger.info(`All drawings submitted for game ${gameId}, finalizing...`);
-
-      // Get all submissions and evaluate
-      const updatedSession = await gameService.getGameSession(gameId);
-      const scores = {};
-
-      for (const [userId, submission] of Object.entries(updatedSession.submissions)) {
-        const player = session.players.find(p => p.userId === userId);
-        if (userId === req.user.uid) {
-          scores[userId] = {
-            ...evaluation,
-            displayName: req.user.displayName,
-            photoUrl: req.user.photoUrl || null,
-          };
-        } else if (submission.drawingBuffer) {
-          const otherEval = await evaluateDrawing(
-            Buffer.from(submission.drawingBuffer),
-            session.prompt,
-            { drawingTimeSeconds: session.drawingTimeSeconds }
-          );
-          scores[userId] = {
-            ...otherEval,
-            displayName: player?.displayName || 'Unknown',
-            photoUrl: player?.photoUrl || null,
-          };
-        }
-      }
-
-      // Finalize game with scores
-      await gameService.finalizeGame(gameId, scores);
-
-      // Build drawings map with base64 images for side-by-side comparison
-      const drawingsMap = {};
-      for (const [userId, scoreData] of Object.entries(scores)) {
-        const sub = updatedSession.submissions[userId];
-        const base64Img = sub?.drawingBuffer
-          ? `data:image/png;base64,${Buffer.from(sub.drawingBuffer).toString('base64')}`
-          : null;
-
-        drawingsMap[userId] = {
-          userId,
-          displayName: scoreData.displayName || 'Player',
-          score: scoreData.score,
-          grade: scoreData.grade,
-          breakdown: scoreData.breakdown,
-          explanation: scoreData.explanation,
-          strengths: scoreData.strengths || [],
-          weaknesses: scoreData.weaknesses || [],
-          imageData: base64Img,
-        };
-      }
-
-      // Emit results to all players in the room
-      const rankings = rankPlayers(scores);
-      const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
-      const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
-      const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
-
-      if (io) {
-        io.to(gameId).emit('game:results', {
-          gameId,
-          prompt: session.prompt,
-          rankings,
-          drawings: drawingsMap,
-          winnerId,
-        });
-      }
+      logger.info(`[LOG] All players submitted for game ${gameId}, starting parallel evaluation...`);
+      // Run evaluation asynchronously or await it
+      triggerMatchEvaluation(gameId, io).catch(err => {
+        logger.error(`Error in match evaluation for game ${gameId}:`, err);
+      });
     }
 
     res.json({
       success: true,
       data: {
-        score: evaluation.score,
-        grade: evaluation.grade,
-        confidence: evaluation.confidence,
-        explanation: evaluation.explanation,
-        labels: evaluation.labels,
-        breakdown: evaluation.breakdown,
+        message: 'Drawing submitted successfully',
         allSubmitted,
       },
     });

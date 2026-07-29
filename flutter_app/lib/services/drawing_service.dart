@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/drawing_submission.dart';
@@ -44,10 +44,13 @@ class DrawingService {
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
         return DrawingResult.fromJson(data['data']);
+      } else {
+        throw Exception(data['error']?['message'] ?? 'Failed to submit drawing');
       }
-    } catch (_) {}
-
-    return _buildFallbackResult('drawing', drawingBytes);
+    } catch (e) {
+      debugPrint('[DrawingService] Submission error: $e');
+      rethrow;
+    }
   }
 
   /// Evaluate a solo drawing for practice mode.

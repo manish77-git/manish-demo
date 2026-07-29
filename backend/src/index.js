@@ -11,6 +11,7 @@ import LobbyManager from './services/lobbyManager.js';
 import { checkGeminiStatus } from './services/geminiEvaluator.service.js';
 import { getRandomPrompt } from './models/prompts.js';
 import { evaluateDrawing } from './services/aiEvaluation.service.js';
+import { triggerMatchEvaluation } from './controllers/drawing.controller.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
@@ -257,6 +258,15 @@ async function bootstrap() {
           currentRound: 1,
           totalRounds: activeSettings.rounds || 3,
         });
+
+        // Server-side timer safeguard: auto-trigger evaluation when drawing time expires (+5s grace period)
+        const autoEvalBufferMs = (activeSettings.duration + 5) * 1000;
+        setTimeout(() => {
+          logger.info(`[LOG] Timer expired for game ${actualRoomCode}, checking if evaluation needed...`);
+          triggerMatchEvaluation(actualRoomCode, io).catch(err => {
+            logger.error(`Error in timer auto-evaluation for game ${actualRoomCode}:`, err);
+          });
+        }, autoEvalBufferMs);
       }, 3000);
     });
 

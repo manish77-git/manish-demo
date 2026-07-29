@@ -62,6 +62,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   final Map<String, Map<String, dynamic>> _opponentLiveMetrics = {};
   int _evaluatingMsgIndex = 0;
   Timer? _evaluatingMsgTimer;
+  Timer? _evalTimeoutTimer;
 
   static const List<String> _evaluatingMessages = [
     'Analyzing your drawing...',
@@ -188,7 +189,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
       }
     });
 
-    // Play round start sound
     AudioService().playRoundStart();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -196,7 +196,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
       drawing.reset();
       drawing.addListener(_onStrokesChanged);
 
-      Timer.periodic(const Duration(seconds: 10), (t) {
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 10), (t) {
         if (mounted && _isMultiplayer && _timeLeft > 0) {
           _syncTimerWithServer();
         } else {
@@ -234,6 +235,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         };
 
         socketProvider.onPlayerFinished = (userId, displayName) {
+          debugPrint('[LOG] Opponent submitted: $userId ($displayName)');
           if (mounted) {
             setState(() {
               _opponentFinished = true;
@@ -243,8 +245,17 @@ class _DrawingScreenState extends State<DrawingScreen> {
         };
 
         socketProvider.onGameResults = (resultsData) {
+          debugPrint('[LOG] AI response received / Scores saved / Winner calculated: ${resultsData['winnerId']}');
+          _evalTimeoutTimer?.cancel();
+          _evaluatingMsgTimer?.cancel();
+
           if (mounted) {
             _timer?.cancel();
+            setState(() {
+              _isEvaluating = false;
+              _waitingForOpponent = false;
+            });
+
             final myUid = context.read<AuthProvider>().uid;
             final drawingsMap = resultsData['drawings'] as Map<String, dynamic>? ?? {};
             final myData = drawingsMap[myUid] as Map<String, dynamic>? ?? {};
@@ -252,6 +263,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
             final grade = myData['grade'] as String? ?? 'F';
             final explanation = List<String>.from(myData['explanation'] as List? ?? []);
 
+            debugPrint('[LOG] Results screen opened for game ${socketProvider.roomCode}');
             Navigator.pushReplacementNamed(
               context,
               '/results',
@@ -300,6 +312,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     _countdownTimer?.cancel();
     _analysisDebounce?.cancel();
     _evaluatingMsgTimer?.cancel();
+    _evalTimeoutTimer?.cancel();
     try {
       final drawing = context.read<DrawingProvider>();
       drawing.removeListener(_onStrokesChanged);
@@ -412,6 +425,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _handleSubmit() async {
     if (_isEvaluating) return;
 
+    debugPrint('[LOG] Player submitted drawing');
+    debugPrint('[LOG] Evaluation started');
+
     setState(() {
       _isEvaluating = true;
       _evaluatingMsgIndex = 0;
@@ -429,11 +445,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     final drawing = context.read<DrawingProvider>();
     final auth = context.read<AuthProvider>();
+    final socketProvider = context.read<SocketProvider>();
+    final roomCode = socketProvider.roomCode;
 
     try {
       final bytes = await drawing.exportToPng(const Size(400, 400));
-      final socketProvider = context.read<SocketProvider>();
-      final roomCode = socketProvider.roomCode;
 
       final service = DrawingService(
         baseUrl: ApiConfig.serverUrl,
@@ -446,12 +462,26 @@ class _DrawingScreenState extends State<DrawingScreen> {
           _waitingForOpponent = true;
         });
 
+        // Set up 35-second client evaluation timeout safeguard to avoid hanging overlay
+        _evalTimeoutTimer?.cancel();
+        _evalTimeoutTimer = Timer(const Duration(seconds: 35), () {
+          if (mounted && (_isEvaluating || _waitingForOpponent)) {
+            debugPrint('[LOG] AI response timeout (35s) reached on client for room $roomCode');
+            setState(() {
+              _isEvaluating = false;
+              _waitingForOpponent = false;
+            });
+            _evaluatingMsgTimer?.cancel();
+            _showEvaluationErrorDialog();
+          }
+        });
+
         // Submit drawing PNG to backend
         await service.submitDrawing(
           gameId: roomCode,
           drawingBytes: bytes ?? Uint8List(0),
         );
-        // Will stay on waiting overlay until game:results socket event triggers navigation
+        debugPrint('[LOG] Player submission sent to backend for game $roomCode');
       } else {
         result = await service.evaluateSoloDrawing(
           prompt: _currentPrompt,
@@ -459,6 +489,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
         );
 
         if (mounted) {
+          setState(() {
+            _isEvaluating = false;
+          });
           Navigator.pushReplacementNamed(
             context,
             '/results',
@@ -488,8 +521,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
     } catch (e) {
       debugPrint('[DrawingScreen] Evaluation error: $e');
       if (mounted) {
-        setState(() => _isEvaluating = false);
+        setState(() {
+          _isEvaluating = false;
+          _waitingForOpponent = false;
+        });
         _showEvaluationErrorDialog();
+      }
+    } finally {
+      if (mounted && !_isMultiplayer) {
+        setState(() => _isEvaluating = false);
       }
     }
   }

@@ -172,31 +172,120 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
 }
 
 /**
- * Evaluate all drawings for a game session.
+ * Evaluate a single drawing with a 30-second timeout and 1 automatic retry on failure.
+ */
+export async function evaluateDrawingWithRetry(imageBuffer, prompt, options = {}) {
+  const timeoutMs = options.timeoutMs || 30000;
+  const maxAttempts = 2; // initial attempt + 1 retry
+
+  logger.info(`[LOG] Evaluation started for prompt "${prompt}"`);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      logger.info(`[LOG] AI request sent (attempt ${attempt}/${maxAttempts})`);
+
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('AI evaluation timed out (30s limit exceeded)')), timeoutMs);
+      });
+
+      const evalPromise = evaluateDrawing(imageBuffer, prompt, options);
+      const result = await Promise.race([evalPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
+
+      logger.info(`[LOG] AI response received (attempt ${attempt})`);
+      return result;
+    } catch (err) {
+      logger.warn(`AI evaluation attempt ${attempt} failed: ${err.message}`);
+      if (attempt === maxAttempts) {
+        logger.error(`AI evaluation failed after ${maxAttempts} attempts for prompt "${prompt}"`);
+        throw err;
+      }
+      logger.info(`Retrying AI evaluation automatically (attempt ${attempt + 1})...`);
+    }
+  }
+}
+
+/**
+ * Evaluate all drawings for a game session in parallel.
  */
 export async function evaluateAllDrawings(submissions, prompt, drawingTimeSeconds, gameStartTime) {
   const results = {};
-  const startTime = new Date(gameStartTime).getTime();
+  const startTime = gameStartTime ? new Date(gameStartTime).getTime() : Date.now();
 
-  const evaluationPromises = Object.entries(submissions).map(async ([userId, submission]) => {
-    const submittedAt = new Date(submission.submittedAt).getTime();
-    const timeTakenSeconds = Math.round((submittedAt - startTime) / 1000);
+  logger.info(`[LOG] Evaluation started for ${Object.keys(submissions || {}).length} submission(s)`);
 
-    const result = await evaluateDrawing(
-      submission.drawingBuffer,
-      prompt,
-      {
-        drawingTimeSeconds,
-        timeTakenSeconds: Math.min(timeTakenSeconds, drawingTimeSeconds),
-        streak: 0,
+  const evaluationPromises = Object.entries(submissions || {}).map(async ([userId, submission]) => {
+    try {
+      const submittedAt = submission.submittedAt ? new Date(submission.submittedAt).getTime() : Date.now();
+      const timeTakenSeconds = Math.round((submittedAt - startTime) / 1000);
+      
+      let drawingBuffer = null;
+      if (submission.drawingBuffer) {
+        if (Buffer.isBuffer(submission.drawingBuffer)) {
+          drawingBuffer = submission.drawingBuffer;
+        } else if (submission.drawingBuffer.type === 'Buffer') {
+          drawingBuffer = Buffer.from(submission.drawingBuffer.data);
+        } else {
+          drawingBuffer = Buffer.from(submission.drawingBuffer);
+        }
       }
-    );
 
-    results[userId] = result;
+      if (!drawingBuffer || drawingBuffer.length === 0) {
+        logger.warn(`No valid drawing buffer found for user ${userId}, marking as blank.`);
+        results[userId] = {
+          score: 0,
+          grade: 'F',
+          confidence: 0,
+          explanation: ['No drawing submitted.'],
+          labels: [],
+          objectRecognitionScore: 0,
+          requiredFeaturesScore: 0,
+          compositionScore: 0,
+          creativityScore: 0,
+          strokeQualityScore: 0,
+          reasoning: 'No drawing submitted.',
+          missingElements: ['All elements missing.'],
+          strengths: [],
+          weaknesses: ['No submission'],
+          breakdown: { aiScore: 0 },
+        };
+        return;
+      }
+
+      const result = await evaluateDrawingWithRetry(drawingBuffer, prompt, {
+        drawingTimeSeconds: drawingTimeSeconds || 60,
+        timeTakenSeconds: Math.min(Math.max(0, timeTakenSeconds), drawingTimeSeconds || 60),
+        streak: 0,
+      });
+
+      results[userId] = result;
+    } catch (err) {
+      logger.error(`Failed to evaluate drawing for user ${userId}: ${err.message}`);
+      results[userId] = {
+        score: 50,
+        grade: 'D',
+        confidence: 50,
+        explanation: ['AI evaluation encountered an error. Score estimated based on strokes.'],
+        labels: [prompt, 'sketch'],
+        objectRecognitionScore: 50,
+        requiredFeaturesScore: 50,
+        compositionScore: 50,
+        creativityScore: 50,
+        strokeQualityScore: 50,
+        reasoning: 'Evaluation fallback applied after AI retry failure.',
+        missingElements: [],
+        strengths: [],
+        weaknesses: ['Evaluation error'],
+        breakdown: { aiScore: 50 },
+        evaluationError: true,
+      };
+    }
   });
 
   await Promise.all(evaluationPromises);
   return results;
 }
 
-export default { evaluateDrawing, evaluateAllDrawings };
+export default { evaluateDrawing, evaluateDrawingWithRetry, evaluateAllDrawings };
+

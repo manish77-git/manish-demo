@@ -181,6 +181,35 @@ export async function startGame(sessionId, userId) {
 }
 
 /**
+ * Atomically transition game session status to 'evaluating' to prevent duplicate evaluations.
+ */
+export async function transitionToEvaluating(sessionId) {
+  try {
+    const db = getFirestore();
+    const sessionRef = db.collection('gameSessions').doc(sessionId);
+    const sessionDoc = await sessionRef.get();
+
+    if (!sessionDoc.exists) return false;
+
+    const session = sessionDoc.data();
+    if (session.status === 'evaluating' || session.status === 'completed' || session.status === 'results') {
+      return false; // Already evaluating or finished
+    }
+
+    await sessionRef.update({
+      status: 'evaluating',
+      evaluatingStartedAt: new Date().toISOString(),
+    });
+
+    logger.info(`[LOG] Match state changed: drawing -> evaluating for game ${sessionId}`);
+    return true;
+  } catch (error) {
+    logger.error(`Failed to transition game ${sessionId} to evaluating:`, error);
+    return false;
+  }
+}
+
+/**
  * Record a player's drawing submission.
  */
 export async function submitDrawing(sessionId, userId, drawingData) {
@@ -195,16 +224,14 @@ export async function submitDrawing(sessionId, userId, drawingData) {
 
     const session = sessionDoc.data();
 
-    if (session.status !== 'drawing') {
-      throw Object.assign(new Error('Game is not in drawing phase'), { status: 400 });
+    if (session.status !== 'drawing' && session.status !== 'evaluating') {
+      throw Object.assign(new Error('Game is not in drawing or evaluating phase'), { status: 400 });
     }
 
     const player = session.players.find(p => p.userId === userId);
-    if (!player) {
-      throw Object.assign(new Error('Player not in this game'), { status: 400 });
+    if (player) {
+      player.status = 'submitted';
     }
-
-    player.status = 'submitted';
 
     const submission = {
       drawingUrl: drawingData.drawingUrl || null,
@@ -224,9 +251,10 @@ export async function submitDrawing(sessionId, userId, drawingData) {
     });
 
     // Check if all players have submitted
-    const allSubmitted = session.players.every(p => p.status === 'submitted');
+    const activePlayers = session.players.filter(p => p.status !== 'spectator');
+    const allSubmitted = activePlayers.length > 0 && activePlayers.every(p => p.status === 'submitted');
 
-    logger.info(`${player.displayName} submitted drawing for game ${sessionId}`);
+    logger.info(`[LOG] Player submitted drawing: ${player?.displayName || userId} for game ${sessionId}`);
     return { session: { ...session }, allSubmitted };
   } catch (error) {
     if (!error.status) error.status = 500;
@@ -235,7 +263,7 @@ export async function submitDrawing(sessionId, userId, drawingData) {
 }
 
 /**
- * Update scores after AI evaluation and move to results state.
+ * Update scores after AI evaluation and move to results/completed state.
  */
 export async function finalizeGame(sessionId, scores) {
   try {
@@ -243,7 +271,7 @@ export async function finalizeGame(sessionId, scores) {
     const sessionRef = db.collection('gameSessions').doc(sessionId);
 
     const updates = {
-      status: 'results',
+      status: 'completed',
       endedAt: new Date().toISOString(),
     };
 
@@ -278,7 +306,7 @@ export async function finalizeGame(sessionId, scores) {
       }).catch(err => logger.warn(`Failed to record history for ${userId}:`, err.message));
     }
 
-    logger.info(`Game ${sessionId} finalized with scores`);
+    logger.info(`[LOG] Game ${sessionId} finalized with scores in state: completed`);
     return updates;
   } catch (error) {
     logger.error('Failed to finalize game:', error);
