@@ -5,15 +5,19 @@ import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../config/app_colors.dart';
 import '../../config/theme.dart';
-import '../../providers/theme_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/socket_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/confetti_painter.dart';
 import '../../widgets/doodle_painter.dart';
-import '../../widgets/mascot_painter.dart';
-import '../../services/prompt_service.dart';
 import '../../services/audio_service.dart';
+import '../../services/prompt_service.dart';
+
+enum ResultStage {
+  judging,
+  winnerReveal,
+  scoreReveal,
+}
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key});
@@ -24,121 +28,105 @@ class ResultsScreen extends StatefulWidget {
 
 class _ResultsScreenState extends State<ResultsScreen>
     with TickerProviderStateMixin {
-  late AnimationController _entranceController;
+  late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  late AnimationController _scoreController;
-  late Animation<double> _scoreAnimation;
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
+
+  ResultStage _stage = ResultStage.judging;
 
   int _myScore = 0;
   String _prompt = '';
-  List<String> _labels = [];
   String _grade = 'F';
-  int _confidence = 0;
-  List<String> _explanation = [];
 
-  int _objScore = 0;
-  int _featScore = 0;
-  int _compScore = 0;
-  int _creatScore = 0;
-  int _strokeScore = 0;
-  List<String> _strengths = [];
-  List<String> _weaknesses = [];
-
-  // Multiplayer & Single Player variables
   bool _isMultiplayer = false;
   String? _gameId;
   Map<String, dynamic>? _drawingsData;
-  bool _loadingDrawings = false;
   bool _isSinglePlayerChallenge = false;
   int _currentRound = 1;
   int _totalRounds = 5;
   int _cumulativeScore = 0;
   bool _scoreSaved = false;
 
+  bool _stageInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    _entranceController = AnimationController(
+
+    _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 500),
     );
     _fadeAnimation = CurvedAnimation(
-      parent: _entranceController,
+      parent: _fadeController,
       curve: Curves.easeOut,
     );
 
-    _scoreController = AnimationController(
+    _glowController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    );
-    _scoreAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _scoreController, curve: Curves.easeOutCubic),
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _glowAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
-    _entranceController.forward();
+    _fadeController.forward();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_stageInitialized) return;
+
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map<String, dynamic>) {
-      setState(() {
-        _myScore = args['score'] as int? ?? 0;
-        _prompt = args['prompt'] as String? ?? '';
-        _labels = List<String>.from(args['labels'] as List? ?? []);
-        _grade = args['grade'] as String? ?? 'F';
-        _confidence = args['confidence'] as int? ?? 0;
-        _explanation = List<String>.from(args['explanation'] as List? ?? []);
+      _stageInitialized = true;
 
-        _objScore = args['objectRecognitionScore'] as int? ?? (_myScore * 0.9).round();
-        _featScore = args['requiredFeaturesScore'] as int? ?? (_myScore * 0.85).round();
-        _compScore = args['compositionScore'] as int? ?? (_myScore * 0.95).round();
-        _creatScore = args['creativityScore'] as int? ?? (_myScore * 0.88).round();
-        _strokeScore = args['strokeQualityScore'] as int? ?? (_myScore * 0.9).round();
+      _myScore = args['score'] as int? ?? 0;
+      _prompt = args['prompt'] as String? ?? '';
+      _grade = args['grade'] as String? ?? 'F';
 
-        _strengths = List<String>.from(args['strengths'] as List? ?? []);
-        _weaknesses = List<String>.from(args['weaknesses'] as List? ?? []);
+      _isMultiplayer = args['isMultiplayer'] == true;
+      _gameId = args['gameId'] as String?;
+      if (args.containsKey('drawingsData') && args['drawingsData'] is Map<String, dynamic>) {
+        _drawingsData = args['drawingsData'] as Map<String, dynamic>;
+      }
 
-        _isMultiplayer = args['isMultiplayer'] == true;
-        _gameId = args['gameId'] as String?;
-        if (args.containsKey('drawingsData') && args['drawingsData'] is Map<String, dynamic>) {
-          _drawingsData = args['drawingsData'] as Map<String, dynamic>;
-        }
+      _isSinglePlayerChallenge = args['isSinglePlayerChallenge'] == true;
+      _currentRound = args['currentRound'] as int? ?? 1;
+      _totalRounds = args['totalRounds'] as int? ?? 5;
+      _cumulativeScore = args['cumulativeScore'] as int? ?? _myScore;
 
-        _isSinglePlayerChallenge = args['isSinglePlayerChallenge'] == true;
-        _currentRound = args['currentRound'] as int? ?? 1;
-        _totalRounds = args['totalRounds'] as int? ?? 5;
-        _cumulativeScore = args['cumulativeScore'] as int? ?? _myScore;
+      _saveMatchScoreIfNeeded();
+      _startResultFlow();
 
-        _saveMatchScoreIfNeeded();
-
-        _scoreAnimation = Tween<double>(begin: 0, end: _myScore.toDouble()).animate(
-          CurvedAnimation(parent: _scoreController, curve: Curves.easeOutCubic),
-        );
-        _scoreController.forward();
-
-        // Play victory or defeat sound based on score
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (_myScore >= 60) {
-            AudioService().playVictory();
-          } else {
-            AudioService().playDefeat();
-          }
-        });
-
-        // Play score reveal when animation completes
-        _scoreController.addStatusListener((status) {
-          if (status == AnimationStatus.completed) {
-            AudioService().playScoreReveal();
-          }
-        });
-      });
-
-      if (_isMultiplayer && _gameId != null) {
+      if (_isMultiplayer && _gameId != null && _drawingsData == null) {
         _fetchGameDrawings();
       }
     }
+  }
+
+  void _startResultFlow() {
+    // ─── Phase 1: Suspense Animation (2.2 seconds) ───────────
+    setState(() => _stage = ResultStage.judging);
+
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (!mounted) return;
+
+      // ─── Phase 2: Winner Reveal Animation (2.8 seconds) ─────
+      setState(() => _stage = ResultStage.winnerReveal);
+      AudioService().playVictory();
+
+      Future.delayed(const Duration(milliseconds: 2800), () {
+        if (!mounted) return;
+
+        // ─── Phase 3: Final Scores & Drawings Reveal ───────────
+        setState(() => _stage = ResultStage.scoreReveal);
+        AudioService().playScoreReveal();
+      });
+    });
   }
 
   void _saveMatchScoreIfNeeded({bool isLeavingEarly = false}) {
@@ -160,16 +148,8 @@ class _ResultsScreenState extends State<ResultsScreen>
     }
   }
 
-  @override
-  void dispose() {
-    _entranceController.dispose();
-    _scoreController.dispose();
-    super.dispose();
-  }
-
   Future<void> _fetchGameDrawings() async {
     if (_gameId == null) return;
-    setState(() => _loadingDrawings = true);
     try {
       final auth = context.read<AuthProvider>();
       final response = await http.get(
@@ -186,10 +166,15 @@ class _ResultsScreenState extends State<ResultsScreen>
         });
       }
     } catch (e) {
-      debugPrint('Error fetching game drawings: $e');
-    } finally {
-      if (mounted) setState(() => _loadingDrawings = false);
+      debugPrint('[ResultsScreen] Error fetching drawings: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _glowController.dispose();
+    super.dispose();
   }
 
   @override
@@ -198,7 +183,6 @@ class _ResultsScreenState extends State<ResultsScreen>
     final primaryColor = isDark ? AppColors.primaryDark : AppColors.primaryLight;
     final cardBg = isDark ? AppColors.cardDark : AppColors.cardLight;
     final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
-    final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
     final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
     final drawingsMap = _drawingsData?['drawings'] as Map<String, dynamic>? ?? {};
@@ -214,7 +198,6 @@ class _ResultsScreenState extends State<ResultsScreen>
         if (match.key.isNotEmpty) {
           myUid = match.key;
         } else {
-          // If still not matched, pick first entry as myUid if there's only 1 or match socket room
           final socketProvider = context.read<SocketProvider>();
           final roomPlayers = socketProvider.roomPlayers;
           final mySocketPlayer = roomPlayers.firstWhere((p) => p['displayName'] == myDisplayName, orElse: () => {});
@@ -227,39 +210,29 @@ class _ResultsScreenState extends State<ResultsScreen>
       }
     }
 
-    Map<String, dynamic>? opponentStats;
-    String winnerText = '';
-    Color winnerColor = primaryColor;
-    String opponentId = '';
+    Map<String, dynamic>? myData = drawingsMap[myUid] as Map<String, dynamic>?;
+    final myScoreVal = (myData?['score'] as num? ?? _myScore).toInt();
+    final myName = myData?['displayName'] as String? ?? context.read<AuthProvider>().displayName;
 
-    if (_drawingsData != null && drawingsMap.isNotEmpty) {
-      final opponentIdVal = drawingsMap.keys.firstWhere((uid) => uid != myUid, orElse: () => '');
-      opponentId = opponentIdVal;
-      if (opponentId.isNotEmpty) {
-        opponentStats = drawingsMap[opponentId] as Map<String, dynamic>?;
-      }
-
-      final myScoreVal = (drawingsMap[myUid]?['score'] as num? ?? _myScore).toInt();
-      final opponentScoreVal = (opponentStats?['score'] as num? ?? 0).toInt();
-
-      if (myScoreVal > opponentScoreVal) {
-        winnerText = 'Victory! You Won! 🏆';
-        winnerColor = AppColors.mint;
-      } else if (opponentScoreVal > myScoreVal) {
-        final oppName = opponentStats?['displayName'] ?? 'Opponent';
-        winnerText = '$oppName Won! 👑';
-        winnerColor = AppColors.coral;
-      } else {
-        winnerText = "It's a Tie! 🤝";
-        winnerColor = AppColors.sunny;
+    Map<String, dynamic>? opponentData;
+    String opponentUid = '';
+    if (_isMultiplayer && drawingsMap.isNotEmpty) {
+      opponentUid = drawingsMap.keys.firstWhere((uid) => uid != myUid, orElse: () => '');
+      if (opponentUid.isNotEmpty) {
+        opponentData = drawingsMap[opponentUid] as Map<String, dynamic>?;
       }
     }
+    final opponentScoreVal = (opponentData?['score'] as num? ?? 0).toInt();
+    final opponentName = opponentData?['displayName'] as String? ?? 'Opponent';
 
-    final triggerConfetti = _myScore >= 70 || winnerText.contains('Won!');
+    // Winner calculations
+    final isTie = _isMultiplayer && (myScoreVal == opponentScoreVal);
+    final isIWon = _isMultiplayer && (myScoreVal > opponentScoreVal);
+    final winnerName = isTie ? "It's a Draw!" : (isIWon ? myName : opponentName);
 
     return Scaffold(
       body: ConfettiOverlay(
-        trigger: triggerConfetti,
+        trigger: _stage == ResultStage.winnerReveal || _stage == ResultStage.scoreReveal,
         child: Stack(
           children: [
             Positioned.fill(
@@ -267,338 +240,27 @@ class _ResultsScreenState extends State<ResultsScreen>
                 painter: DoodlePainter(primaryColor: primaryColor, isDark: isDark),
               ),
             ),
-
             SafeArea(
               child: FadeTransition(
                 opacity: _fadeAnimation,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space32),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 850),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Header panel
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _isMultiplayer ? 'Match Results' : 'Practice Evaluation',
-                                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                    ),
-                                    const SizedBox(height: AppTheme.space4),
-                                    Text(
-                                      'Prompt: ${_prompt.toUpperCase()}',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: primaryColor,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Inky Mascot
-                              AnimatedInky(
-                                size: 55,
-                                expression: _myScore >= 70 ? InkyExpression.excited : InkyExpression.happy,
-                              ),
-                              const SizedBox(width: 12),
-                              // Grade Chip
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.gradeColor(_grade).withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                                  border: Border.all(color: AppColors.gradeColor(_grade).withOpacity(0.4), width: 1.5),
-                                ),
-                                child: Text(
-                                  'GRADE $_grade',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.gradeColor(_grade),
-                                    fontSize: 14,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: AppTheme.space24),
-
-                          // Winner declaration card if multiplayer
-                          if (_isMultiplayer && winnerText.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(20.0),
-                              decoration: AppTheme.accentCard(context, winnerColor),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(LucideIcons.trophy, color: winnerColor, size: 24),
-                                  const SizedBox(width: AppTheme.space12),
-                                  Text(
-                                    winnerText,
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w900,
-                                      color: textColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: AppTheme.space24),
-                          ],
-
-                          // 1 to 1 Sketch Comparison
-                          if (_isMultiplayer && _drawingsData != null && _gameId != null) ...[
-                            _buildDrawingComparison(
-                              _gameId!,
-                              myUid,
-                              opponentId,
-                              opponentStats,
-                              cardBg,
-                              borderColor,
-                              textColor,
-                              primaryColor,
-                            ),
-                            const SizedBox(height: AppTheme.space24),
-                          ],
-
-                          // Leaderboard / Final Standings
-                          if (_isMultiplayer && _drawingsData != null) ...[
-                            _buildLeaderboardCard(
-                              _drawingsData!['drawings'] as Map<String, dynamic>,
-                              myUid,
-                              cardBg,
-                              borderColor,
-                              textColor,
-                              primaryColor,
-                            ),
-                            const SizedBox(height: AppTheme.space24),
-                          ],
-
-                          // Main Score and Judges side-by-side
-                          if (!_isMultiplayer)
-                            Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 400),
-                                child: _buildMainScoreCard(
-                                  cardBg,
-                                  borderColor,
-                                  primaryColor,
-                                  textColor,
-                                  textMuted,
-                                  isDark,
-                                ),
-                              ),
-                            )
-                          else
-                            MediaQuery.of(context).size.width > 620
-                                ? Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        flex: 2,
-                                        child: _buildMainScoreCard(
-                                          cardBg,
-                                          borderColor,
-                                          primaryColor,
-                                          textColor,
-                                          textMuted,
-                                          isDark,
-                                        ),
-                                      ),
-                                      const SizedBox(width: AppTheme.space24),
-                                      Expanded(
-                                        flex: 3,
-                                        child: _buildJudgesDashboard(
-                                          cardBg,
-                                          borderColor,
-                                          primaryColor,
-                                          textMuted,
-                                          textColor,
-                                          isDark,
-                                          opponentStats: opponentStats,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : Column(
-                                    children: [
-                                      _buildMainScoreCard(
-                                        cardBg,
-                                        borderColor,
-                                        primaryColor,
-                                        textColor,
-                                        textMuted,
-                                        isDark,
-                                      ),
-                                      const SizedBox(height: AppTheme.space24),
-                                      _buildJudgesDashboard(
-                                        cardBg,
-                                        borderColor,
-                                        primaryColor,
-                                        textMuted,
-                                        textColor,
-                                        isDark,
-                                        opponentStats: opponentStats,
-                                      ),
-                                    ],
-                                  ),
-                          const SizedBox(height: AppTheme.space24),
-
-                          // Strengths & Weaknesses Cards
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _buildFeedbackCard(
-                                  title: 'Strengths',
-                                  items: _strengths.isNotEmpty
-                                      ? _strengths
-                                      : (_myScore < 40 || _grade == 'F' ? ['No clear shapes recognized'] : ['Basic form attempted']),
-                                  icon: LucideIcons.checkCircle,
-                                  iconColor: AppColors.mint,
-                                  cardBg: cardBg,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  isDark: isDark,
-                                  accentColor: AppColors.mint,
-                                ),
-                              ),
-                              const SizedBox(width: AppTheme.space16),
-                              Expanded(
-                                child: _buildFeedbackCard(
-                                  title: 'Improvement',
-                                  items: _weaknesses.isNotEmpty
-                                      ? _weaknesses
-                                      : (_myScore < 40 || _grade == 'F' ? ['Draw clear defining outlines', 'Follow the prompt subject'] : ['Add secondary details', 'Outline consistency']),
-                                  icon: LucideIcons.alertTriangle,
-                                  iconColor: AppColors.sunny,
-                                  cardBg: cardBg,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  isDark: isDark,
-                                  accentColor: AppColors.sunny,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: AppTheme.space24),
-
-                          // Analysis bubble
-                          if (_explanation.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(AppTheme.space16),
-                              decoration: AppTheme.gameCard(context),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(LucideIcons.sparkles, color: primaryColor, size: 16),
-                                      const SizedBox(width: AppTheme.space8),
-                                      Text(
-                                        'AI Judge Feedback',
-                                        style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontSize: 14),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: AppTheme.space12),
-                                  ..._explanation.map((e) => Padding(
-                                        padding: const EdgeInsets.only(bottom: 6),
-                                        child: Text(
-                                          '· $e',
-                                          style: TextStyle(fontSize: 13, height: 1.5, color: textColor, fontWeight: FontWeight.bold),
-                                        ),
-                                      )),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: AppTheme.space32),
-                          ],
-
-                          // Play CTAs
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () {
-                                    _saveMatchScoreIfNeeded(isLeavingEarly: true);
-                                    Navigator.pushReplacementNamed(context, '/home');
-                                  },
-                                  child: const Text('Back to Home'),
-                                ),
-                              ),
-                              const SizedBox(width: AppTheme.space16),
-                              Expanded(
-                                child: Container(
-                                  height: 54,
-                                  decoration: AppTheme.gradientButton(),
-                                  child: ElevatedButton(
-                                    onPressed: () {
-                                      if (_isSinglePlayerChallenge) {
-                                        final hasMoreRounds = _totalRounds == -1 || _currentRound < _totalRounds;
-                                        if (hasMoreRounds) {
-                                          final promptObj = PromptService().getRandomPrompt();
-                                          Navigator.pushReplacementNamed(
-                                            context,
-                                            '/drawing',
-                                            arguments: {
-                                              'prompt': promptObj.text,
-                                              'duration': 60,
-                                              'isSinglePlayerChallenge': true,
-                                              'currentRound': _currentRound + 1,
-                                              'totalRounds': _totalRounds,
-                                              'cumulativeScore': _cumulativeScore,
-                                            },
-                                          );
-                                        } else {
-                                          Navigator.pushReplacementNamed(context, '/single_player');
-                                        }
-                                      } else if (_isMultiplayer) {
-                                        // Emit rematch to reset the room on the server
-                                        final socketProvider = context.read<SocketProvider>();
-                                        socketProvider.emitRematch();
-                                        // Navigate back to lobby — room code is preserved in SocketProvider
-                                        Navigator.pushReplacementNamed(
-                                          context,
-                                          '/lobby',
-                                          arguments: socketProvider.roomCode,
-                                        );
-                                      } else {
-                                        Navigator.pushReplacementNamed(context, '/drawing');
-                                      }
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      _isSinglePlayerChallenge
-                                          ? (_totalRounds == -1 || _currentRound < _totalRounds ? 'Next Round (${_currentRound + 1})' : 'Play Again')
-                                          : (_isMultiplayer ? 'Play Again' : 'Try Another'),
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 500),
+                  child: _buildStageContent(
+                    context,
+                    cardBg,
+                    borderColor,
+                    textColor,
+                    primaryColor,
+                    isDark,
+                    myUid,
+                    myName,
+                    myScoreVal,
+                    opponentUid,
+                    opponentName,
+                    opponentScoreVal,
+                    winnerName,
+                    isIWon,
+                    isTie,
                   ),
                 ),
               ),
@@ -609,521 +271,715 @@ class _ResultsScreenState extends State<ResultsScreen>
     );
   }
 
-  Widget _buildMainScoreCard(Color cardBg, Color borderColor, Color primaryColor, Color textColor, Color textMuted, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.space24),
-      decoration: AppTheme.gameCard(context),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedBuilder(
-            animation: _scoreAnimation,
-            builder: (context, child) {
-              final scoreVal = _scoreAnimation.value;
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 130,
-                    height: 130,
-                    child: CircularProgressIndicator(
-                      value: scoreVal / 100,
-                      strokeWidth: 8,
-                      backgroundColor: borderColor.withOpacity(0.12),
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+  Widget _buildStageContent(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+    bool isDark,
+    String myUid,
+    String myName,
+    int myScore,
+    String opponentUid,
+    String opponentName,
+    int opponentScore,
+    String winnerName,
+    bool isIWon,
+    bool isTie,
+  ) {
+    switch (_stage) {
+      case ResultStage.judging:
+        return _buildJudgingPhase(context, cardBg, borderColor, textColor, primaryColor);
+      case ResultStage.winnerReveal:
+        return _buildWinnerRevealPhase(context, cardBg, borderColor, textColor, primaryColor, winnerName, isIWon, isTie);
+      case ResultStage.scoreReveal:
+        return _buildScoreRevealPhase(
+          context,
+          cardBg,
+          borderColor,
+          textColor,
+          primaryColor,
+          isDark,
+          myUid,
+          myName,
+          myScore,
+          opponentUid,
+          opponentName,
+          opponentScore,
+          winnerName,
+          isIWon,
+          isTie,
+        );
+    }
+  }
+
+  // ─── PHASE 1: Suspense / Judging Animation ─────────────────────
+
+  Widget _buildJudgingPhase(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+  ) {
+    return KeyedSubtree(
+      key: const ValueKey('stage_judging'),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppTheme.space24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            padding: const EdgeInsets.all(32),
+            decoration: AppTheme.gameCard(context),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _glowAnimation,
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: primaryColor.withOpacity(0.12),
+                      border: Border.all(color: primaryColor.withOpacity(0.5), width: 3),
+                    ),
+                    child: Icon(LucideIcons.sparkles, size: 54, color: primaryColor),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'AI IS JUDGING...',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                    letterSpacing: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Evaluating drawing accuracy for prompt "${_prompt.toUpperCase()}"',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: textColor.withOpacity(0.6),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    minHeight: 10,
+                    backgroundColor: primaryColor.withOpacity(0.15),
+                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── PHASE 2: Dramatic Winner Reveal ───────────────────────────
+
+  Widget _buildWinnerRevealPhase(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+    String winnerName,
+    bool isIWon,
+    bool isTie,
+  ) {
+    final winnerColor = isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral);
+
+    return KeyedSubtree(
+      key: const ValueKey('stage_winner_reveal'),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppTheme.space24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 550),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: winnerColor, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  color: winnerColor.withOpacity(0.35),
+                  blurRadius: 30,
+                  spreadRadius: 5,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _glowAnimation,
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: winnerColor.withOpacity(0.15),
+                      border: Border.all(color: winnerColor, width: 3),
+                    ),
+                    child: Icon(
+                      isTie ? LucideIcons.handshake : LucideIcons.trophy,
+                      size: 64,
+                      color: winnerColor,
                     ),
                   ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  isTie ? '🤝 IT\'S A DRAW!' : '🏆 WINNER 🏆',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                    color: winnerColor,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  winnerName,
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                    letterSpacing: 1.0,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: winnerColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: winnerColor.withOpacity(0.4)),
+                  ),
+                  child: Text(
+                    isTie ? 'EQUAL SCORES!' : (isIWon ? 'VICTORY IS YOURS!' : 'WELL FOUGHT!'),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: winnerColor,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── PHASE 3: Score & Side-by-Side Drawings Reveal ─────────────
+
+  Widget _buildScoreRevealPhase(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+    bool isDark,
+    String myUid,
+    String myName,
+    int myScore,
+    String opponentUid,
+    String opponentName,
+    int opponentScore,
+    String winnerName,
+    bool isIWon,
+    bool isTie,
+  ) {
+    return KeyedSubtree(
+      key: const ValueKey('stage_score_reveal'),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.space24, vertical: AppTheme.space32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 850),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header Banner
+                Center(
+                  child: Column(
                     children: [
                       Text(
-                        '${scoreVal.round()}',
+                        _isMultiplayer ? 'MATCH RESULTS' : 'DRAWING SCORE',
                         style: TextStyle(
-                          fontSize: 42,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
                           color: textColor,
+                          letterSpacing: 1.5,
                         ),
                       ),
+                      const SizedBox(height: 4),
                       Text(
-                        'SCORE',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: textMuted, fontSize: 11, letterSpacing: 0.5),
+                        'PROMPT: ${_prompt.toUpperCase()}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: primaryColor,
+                          letterSpacing: 1.0,
+                        ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Winner Headline Card
+                if (_isMultiplayer)
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                    decoration: BoxDecoration(
+                      color: isTie ? AppColors.sunny.withOpacity(0.12) : (isIWon ? AppColors.mint.withOpacity(0.12) : AppColors.coral.withOpacity(0.12)),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
+                        width: 2,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isTie ? LucideIcons.handshake : LucideIcons.crown,
+                          color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          isTie ? "It's a Draw! 🤝" : (isIWon ? "Victory! You Won! 🏆" : "$opponentName Won! 👑"),
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 24),
+
+                // Side by Side Sketches (or Single Player Canvas)
+                if (_isMultiplayer)
+                  _buildSideBySideDrawings(
+                    context,
+                    cardBg,
+                    borderColor,
+                    textColor,
+                    primaryColor,
+                    myUid,
+                    myName,
+                    myScore,
+                    opponentUid,
+                    opponentName,
+                    opponentScore,
+                    isIWon,
+                    isTie,
+                  )
+                else
+                  _buildSinglePlayerDrawingCard(
+                    context,
+                    cardBg,
+                    borderColor,
+                    textColor,
+                    primaryColor,
+                    myName,
+                    myScore,
+                  ),
+
+                const SizedBox(height: 32),
+
+                // Action Buttons Only: Play Again & Back to Home
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          if (_isMultiplayer) {
+                            final socketProvider = context.read<SocketProvider>();
+                            socketProvider.emitRematch();
+                            Navigator.pushReplacementNamed(
+                              context,
+                              '/lobby',
+                              arguments: socketProvider.roomCode,
+                            );
+                          } else if (_isSinglePlayerChallenge) {
+                            if (_currentRound < _totalRounds) {
+                              final nextRoundPrompt = PromptService().getRandomPrompt();
+                              Navigator.pushReplacementNamed(
+                                context,
+                                '/drawing',
+                                arguments: {
+                                  'prompt': nextRoundPrompt,
+                                  'isSinglePlayerChallenge': true,
+                                  'currentRound': _currentRound + 1,
+                                  'totalRounds': _totalRounds,
+                                  'cumulativeScore': _cumulativeScore,
+                                },
+                              );
+                            } else {
+                              Navigator.pushReplacementNamed(context, '/single_player');
+                            }
+                          } else {
+                            Navigator.pushReplacementNamed(context, '/drawing');
+                          }
+                        },
+                        icon: const Icon(LucideIcons.rotateCcw, size: 20),
+                        label: Text(
+                          _isMultiplayer
+                              ? 'Play Again'
+                              : (_isSinglePlayerChallenge && _currentRound < _totalRounds ? 'Next Round' : 'Play Again'),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          elevation: 4,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => Navigator.pushReplacementNamed(context, '/'),
+                        icon: const Icon(LucideIcons.home, size: 20),
+                        label: const Text('Back to Home', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          side: BorderSide(color: borderColor, width: 2),
+                          foregroundColor: textColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Side-by-Side Drawings Card ─────────────────────────────────
+
+  Widget _buildSideBySideDrawings(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+    String myUid,
+    String myName,
+    int myScore,
+    String opponentUid,
+    String opponentName,
+    int opponentScore,
+    bool isIWon,
+    bool isTie,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 520;
+
+        final myCard = _buildPlayerCanvasCard(
+          context,
+          uid: myUid,
+          name: '$myName (You)',
+          score: myScore,
+          isWinner: isIWon && !isTie,
+          isTie: isTie,
+          accentColor: primaryColor,
+          cardBg: cardBg,
+          borderColor: borderColor,
+          textColor: textColor,
+        );
+
+        final opponentCard = _buildPlayerCanvasCard(
+          context,
+          uid: opponentUid,
+          name: opponentName,
+          score: opponentScore,
+          isWinner: !isIWon && !isTie,
+          isTie: isTie,
+          accentColor: AppColors.coral,
+          cardBg: cardBg,
+          borderColor: borderColor,
+          textColor: textColor,
+        );
+
+        if (isWide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: myCard),
+              const SizedBox(width: 16),
+              Expanded(child: opponentCard),
+            ],
+          );
+        } else {
+          return Column(
+            children: [
+              myCard,
+              const SizedBox(height: 16),
+              opponentCard,
+            ],
+          );
+        }
+      },
+    );
+  }
+
+  // ─── Individual Player Canvas Card ──────────────────────────────
+
+  Widget _buildPlayerCanvasCard(
+    BuildContext context, {
+    required String uid,
+    required String name,
+    required int score,
+    required bool isWinner,
+    required bool isTie,
+    required Color accentColor,
+    required Color cardBg,
+    required Color borderColor,
+    required Color textColor,
+  }) {
+    final goldColor = const Color(0xFFFFD700);
+    final borderToUse = isWinner ? goldColor : borderColor;
+    final borderWidth = isWinner ? 3.0 : 1.5;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderToUse, width: borderWidth),
+        boxShadow: isWinner
+            ? [
+                BoxShadow(
+                  color: goldColor.withOpacity(0.3),
+                  blurRadius: 15,
+                  spreadRadius: 2,
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header Badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    color: textColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (isWinner)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: goldColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: goldColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.crown, size: 14, color: goldColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        'WINNER',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: goldColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Canvas Box
+          AspectRatio(
+            aspectRatio: 1.2,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                color: Theme.of(context).brightness == Brightness.dark ? Colors.black38 : Colors.grey[100],
+                child: _buildDrawingImageWidget(uid, textColor),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Animated Score Count-Up
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: score.toDouble()),
+            duration: const Duration(milliseconds: 1400),
+            curve: Curves.easeOutCubic,
+            builder: (context, val, child) {
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: isWinner ? goldColor.withOpacity(0.1) : accentColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isWinner ? goldColor.withOpacity(0.4) : accentColor.withOpacity(0.2),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      '${val.round()}',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        color: isWinner ? goldColor : accentColor,
+                      ),
+                    ),
+                    Text(
+                      'POINTS',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: textColor.withOpacity(0.6),
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Single Player Drawing Card ────────────────────────────────
+
+  Widget _buildSinglePlayerDrawingCard(
+    BuildContext context,
+    Color cardBg,
+    Color borderColor,
+    Color textColor,
+    Color primaryColor,
+    String name,
+    int score,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.gameCard(context),
+      child: Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 1.3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                color: Theme.of(context).brightness == Brightness.dark ? Colors.black38 : Colors.grey[100],
+                child: _buildDrawingImageWidget(context.read<AuthProvider>().uid, textColor),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: score.toDouble()),
+            duration: const Duration(milliseconds: 1400),
+            curve: Curves.easeOutCubic,
+            builder: (context, val, child) {
+              return Column(
+                children: [
+                  Text(
+                    '${val.round()}',
+                    style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900, color: primaryColor),
+                  ),
+                  Text(
+                    'FINAL SCORE',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor.withOpacity(0.6), letterSpacing: 1.0),
                   ),
                 ],
               );
             },
           ),
-          const SizedBox(height: AppTheme.space24),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: borderColor, width: 1.5),
-            ),
-            child: Text(
-              'Confidence: $_confidence%',
-              style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildJudgesDashboard(
-    Color cardBg,
-    Color borderColor,
-    Color primaryColor,
-    Color textMuted,
-    Color textColor,
-    bool isDark, {
-    Map<String, dynamic>? opponentStats,
-  }) {
-    final opponentName = opponentStats?['displayName'] ?? 'Opponent';
+  // ─── Drawing Image Renderer ────────────────────────────────────
 
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.space24),
-      decoration: AppTheme.gameCard(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Evaluation Breakdown',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
-              ),
-              if (_isMultiplayer)
-                Text(
-                  'vs $opponentName',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.skyBlue),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppTheme.space24),
-          _buildDuelScoreBar(
-            'Object Recognition (40%)',
-            _objScore,
-            opponentStats?['objectRecognitionScore'] as int?,
-            primaryColor,
-            borderColor,
-            textColor,
-          ),
-          const SizedBox(height: AppTheme.space12),
-          _buildDuelScoreBar(
-            'Required Features (25%)',
-            _featScore,
-            opponentStats?['requiredFeaturesScore'] as int?,
-            primaryColor,
-            borderColor,
-            textColor,
-          ),
-          const SizedBox(height: AppTheme.space12),
-          _buildDuelScoreBar(
-            'Composition (15%)',
-            _compScore,
-            opponentStats?['compositionScore'] as int?,
-            primaryColor,
-            borderColor,
-            textColor,
-          ),
-          const SizedBox(height: AppTheme.space12),
-          _buildDuelScoreBar(
-            'Creativity (10%)',
-            _creatScore,
-            opponentStats?['creativityScore'] as int?,
-            primaryColor,
-            borderColor,
-            textColor,
-          ),
-          const SizedBox(height: AppTheme.space12),
-          _buildDuelScoreBar(
-            'Stroke Quality (10%)',
-            _strokeScore,
-            opponentStats?['strokeQualityScore'] as int?,
-            primaryColor,
-            borderColor,
-            textColor,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDuelScoreBar(
-    String label,
-    int myVal,
-    int? oppVal,
-    Color color,
-    Color borderColor,
-    Color textColor,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textColor)),
-            Text(
-              oppVal == null ? '$myVal/100' : 'YOU: $myVal  |  THEM: $oppVal',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textColor),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppTheme.space4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Stack(
-            children: [
-              LinearProgressIndicator(
-                value: myVal / 100,
-                minHeight: 8,
-                backgroundColor: borderColor.withOpacity(0.12),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-              if (oppVal != null)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      widthFactor: oppVal / 100,
-                      child: Container(
-                        height: 2,
-                        color: AppColors.skyBlue,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFeedbackCard({
-    required String title,
-    required List<String> items,
-    required IconData icon,
-    required Color iconColor,
-    required Color cardBg,
-    required Color borderColor,
-    required Color textColor,
-    required bool isDark,
-    required Color accentColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.space16),
-      decoration: AppTheme.accentCard(context, accentColor),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: iconColor, size: 16),
-              const SizedBox(width: AppTheme.space8),
-              Text(
-                title,
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppTheme.space12),
-          ...items.map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '· $item',
-                  style: TextStyle(fontSize: 12, height: 1.5, color: textColor, fontWeight: FontWeight.bold),
-                ),
-              )),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawingComparison(
-    String gameId,
-    String myUid,
-    String opponentId,
-    Map<String, dynamic>? opponentStats,
-    Color cardBg,
-    Color borderColor,
-    Color textColor,
-    Color primaryColor,
-  ) {
-    final opponentName = opponentStats?['displayName'] ?? 'Opponent';
-    final opponentScore = (opponentStats?['score'] as num? ?? 0).toInt();
-
-    final myScore = (_drawingsData?['drawings']?[myUid]?['score'] as num? ?? 0).toInt();
-
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.space24),
-      decoration: AppTheme.gameCard(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(LucideIcons.images, color: primaryColor, size: 18),
-              const SizedBox(width: AppTheme.space8),
-              Text(
-                '1-to-1 Sketch Comparison',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppTheme.space24),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth > 500;
-              final childWidget = [
-                // My Drawing
-                Expanded(
-                  flex: isWide ? 1 : 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(AppTheme.space12),
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: borderColor, width: 1.5),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'YOUR SKETCH',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            color: primaryColor,
-                            letterSpacing: 1.0,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: AppTheme.space12),
-                        AspectRatio(
-                          aspectRatio: 1.2,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              color: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey[100],
-                              child: _buildDrawingImageWidget(
-                                myUid,
-                                '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$myUid',
-                                textColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppTheme.space12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('You', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            Text('$myScore pts', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: primaryColor)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (isWide) const SizedBox(width: AppTheme.space16) else const SizedBox(height: AppTheme.space16),
-                // Opponent Drawing
-                Expanded(
-                  flex: isWide ? 1 : 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(AppTheme.space12),
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: borderColor, width: 1.5),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'OPPONENT SKETCH',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.coral,
-                            letterSpacing: 1.0,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: AppTheme.space12),
-                        AspectRatio(
-                          aspectRatio: 1.2,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              color: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey[100],
-                              child: opponentId.isNotEmpty
-                                  ? _buildDrawingImageWidget(
-                                      opponentId,
-                                      '${ApiConfig.serverUrl}/api/drawings/$gameId/image/$opponentId',
-                                      textColor,
-                                    )
-                                  : Center(
-                                      child: Text(
-                                        'No Opponent',
-                                        style: TextStyle(color: textColor.withOpacity(0.4), fontSize: 12),
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppTheme.space12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                opponentName,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text('$opponentScore pts', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppColors.coral)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ];
-
-              return isWide
-                  ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: childWidget)
-                  : Column(children: childWidget);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawingImageWidget(String uid, String fallbackUrl, Color textColor) {
+  Widget _buildDrawingImageWidget(String uid, Color textColor) {
     try {
       final imgDataStr = _drawingsData?['drawings']?[uid]?['imageData'] as String?;
       if (imgDataStr != null && imgDataStr.startsWith('data:image')) {
         final base64Part = imgDataStr.split(',').last;
         final bytes = base64Decode(base64Part);
-        return Image.memory(bytes, fit: BoxFit.contain);
-      }
-    } catch (_) {}
-
-    return Image.network(
-      fallbackUrl,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) {
-        return Center(
-          child: Icon(
-            LucideIcons.imageOff,
-            color: textColor.withOpacity(0.3),
-            size: 32,
-          ),
+        return Image.memory(
+          bytes,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => _buildImagePlaceholder(textColor),
         );
-      },
-    );
+      }
+    } catch (e) {
+      debugPrint('[ResultsScreen] Error decoding base64 image: $e');
+    }
+
+    if (_gameId != null && uid.isNotEmpty) {
+      final fallbackUrl = '${ApiConfig.serverUrl}/api/drawings/$_gameId/image/$uid';
+      return Image.network(
+        fallbackUrl,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _buildImagePlaceholder(textColor),
+      );
+    }
+
+    return _buildImagePlaceholder(textColor);
   }
 
-  Widget _buildLeaderboardCard(
-    Map<String, dynamic> drawingsMap,
-    String myUid,
-    Color cardBg,
-    Color borderColor,
-    Color textColor,
-    Color primaryColor,
-  ) {
-    final sortedPlayers = drawingsMap.entries.toList()
-      ..sort((a, b) => ((b.value['score'] as num? ?? 0).toInt()).compareTo((a.value['score'] as num? ?? 0).toInt()));
-
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.space24),
-      decoration: AppTheme.gameCard(context),
+  Widget _buildImagePlaceholder(Color textColor) {
+    return Center(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Icon(LucideIcons.listOrdered, color: primaryColor, size: 18),
-              const SizedBox(width: AppTheme.space8),
-              Text(
-                'Final Standings',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
-              ),
-            ],
+          Icon(LucideIcons.image, size: 36, color: textColor.withOpacity(0.3)),
+          const SizedBox(height: 8),
+          Text(
+            'Canvas Sketch',
+            style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.4), fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: AppTheme.space16),
-          ...sortedPlayers.asMap().entries.map((entry) {
-            final rank = entry.key + 1;
-            final item = entry.value;
-            final pUid = item.key;
-            final pData = item.value as Map<String, dynamic>;
-            final pName = pData['displayName'] ?? 'Player';
-            final pScore = (pData['score'] as num? ?? 0).toInt();
-            final pGrade = pData['grade'] as String? ?? 'F';
-            final isMe = pUid == myUid;
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: isMe ? primaryColor.withOpacity(0.08) : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: isMe ? Border.all(color: primaryColor, width: 1.5) : null,
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '#$rank',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: rank == 1 ? AppColors.sunny : textColor.withOpacity(0.6),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  if (rank == 1)
-                    const Icon(LucideIcons.trophy, size: 16, color: AppColors.sunny)
-                  else
-                    const SizedBox(width: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      isMe ? '$pName (You)' : pName,
-                      style: TextStyle(
-                        fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-                        fontSize: 13,
-                        color: textColor,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    'Grade $pGrade',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      color: AppColors.gradeColor(pGrade),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    '$pScore pts',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor),
-                  ),
-                ],
-              ),
-            );
-          }),
         ],
       ),
     );
