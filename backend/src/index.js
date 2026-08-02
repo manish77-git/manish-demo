@@ -98,7 +98,7 @@ async function bootstrap() {
         settings: room.settings
       });
 
-      logger.info(`Room ${roomCode} created by ${displayName} (${socket.id})`);
+      logger.info(`[ROOM CREATE] Room ${roomCode} created by ${displayName} (uid=${uid}, socket=${socket.id})`);
     });
 
     // ─── Room: Join ───────────────────────────────────────
@@ -126,7 +126,7 @@ async function bootstrap() {
       const history = lobbyManager.getStrokes(roomCode);
       socket.emit('drawing:history', { history });
 
-      logger.info(`${displayName} joined room ${roomCode} (${socket.id})`);
+      logger.info(`[ROOM JOIN] ${displayName} (uid=${uid}) joined room ${roomCode} (socket=${socket.id}), total players: ${room.players.length}`);
     });
 
     // ─── Room: Leave (explicit) ───────────────────────────
@@ -185,6 +185,8 @@ async function bootstrap() {
       const actualRoomCode = roomCode || socket.roomCode;
       if (!actualRoomCode) return;
 
+      logger.info(`[MATCH START] Match start requested for room ${actualRoomCode}`);
+
       const room = lobbyManager.rooms.get(actualRoomCode);
       if (room) {
         room.status = 'playing';
@@ -204,6 +206,8 @@ async function bootstrap() {
 
       // Record this round's prompt
       lobbyManager.setRoundPrompt(actualRoomCode, selectedPrompt);
+
+      logger.info(`[MATCH START] Prompt selected: "${selectedPrompt}" (difficulty=${promptInfo.difficulty}) for room ${actualRoomCode}`);
 
       // Create the game session in the Firestore mock database
       try {
@@ -236,10 +240,13 @@ async function bootstrap() {
         };
 
         await db.collection('gameSessions').doc(actualRoomCode).set(session);
-        logger.info(`Game session initialized for room: ${actualRoomCode} | Round 1 | Prompt: "${selectedPrompt}"`);
+        logger.info(`[MATCH START] Game session stored in DB for room ${actualRoomCode}`);
       } catch (err) {
-        logger.error(`Failed to initialize game session: ${err.message}`);
+        logger.error(`[MATCH START] Failed to initialize game session: ${err.message}`);
       }
+
+      // Emit game:status to all players
+      io.to(actualRoomCode).emit('game:status', { status: 'countdown', gameId: actualRoomCode });
 
       // Emit 3-second countdown signal first
       io.to(actualRoomCode).emit('match:countdown', {
@@ -250,8 +257,11 @@ async function bootstrap() {
         totalRounds: activeSettings.rounds || 3,
       });
 
+      logger.info(`[MATCH START] Countdown emitted for room ${actualRoomCode}, game starts in 3s`);
+
       // Emit start_drawing after countdown
       setTimeout(() => {
+        io.to(actualRoomCode).emit('game:status', { status: 'drawing', gameId: actualRoomCode });
         io.to(actualRoomCode).emit('match:start', {
           prompt: selectedPrompt,
           duration: activeSettings.duration,
@@ -259,14 +269,22 @@ async function bootstrap() {
           totalRounds: activeSettings.rounds || 3,
         });
 
+        logger.info(`[MATCH START] Drawing phase started for room ${actualRoomCode}, duration=${activeSettings.duration}s`);
+
         // Server-side timer safeguard: auto-trigger evaluation when drawing time expires (+5s grace period)
+        // Store the timer reference so it can be cancelled if all players submit early
         const autoEvalBufferMs = (activeSettings.duration + 5) * 1000;
-        setTimeout(() => {
-          logger.info(`[LOG] Timer expired for game ${actualRoomCode}, checking if evaluation needed...`);
+        const autoEvalTimer = setTimeout(() => {
+          logger.info(`[TIMER] Auto-eval timer expired for game ${actualRoomCode}, checking if evaluation needed...`);
           triggerMatchEvaluation(actualRoomCode, io).catch(err => {
-            logger.error(`Error in timer auto-evaluation for game ${actualRoomCode}:`, err);
+            logger.error(`[TIMER] Error in auto-evaluation for game ${actualRoomCode}:`, err.message);
           });
         }, autoEvalBufferMs);
+
+        // Store timer reference on the room for cancellation when all submit early
+        if (room) {
+          room._autoEvalTimer = autoEvalTimer;
+        }
       }, 3000);
     });
 
@@ -312,7 +330,40 @@ async function bootstrap() {
         totalRounds: roundInfo.totalRounds,
       });
 
-      logger.info(`Room ${actualRoomCode} advanced to round ${roundInfo.currentRound}/${roundInfo.totalRounds} | Prompt: "${promptInfo.prompt}"`);
+      logger.info(`[NEXT ROUND] Room ${actualRoomCode} advanced to round ${roundInfo.currentRound}/${roundInfo.totalRounds} | Prompt: "${promptInfo.prompt}"`);
+    });
+
+    // ─── Room: Rematch (Reset without new room) ───────────
+    socket.on('room:rematch', (data) => {
+      const { roomCode } = data || {};
+      const actualRoomCode = roomCode || socket.roomCode;
+      if (!actualRoomCode) return;
+
+      const room = lobbyManager.resetForRematch(actualRoomCode);
+      if (!room) {
+        socket.emit('room:error', { message: 'Room not found for rematch.' });
+        return;
+      }
+
+      // Cancel any pending auto-eval timer from previous match
+      if (room._autoEvalTimer) {
+        clearTimeout(room._autoEvalTimer);
+        room._autoEvalTimer = null;
+      }
+
+      // Broadcast updated room state to all players
+      io.to(actualRoomCode).emit('room:update', {
+        roomCode: actualRoomCode,
+        players: room.players,
+        settings: room.settings,
+      });
+
+      // Notify all players that rematch is ready
+      io.to(actualRoomCode).emit('room:rematch_ready', {
+        roomCode: actualRoomCode,
+      });
+
+      logger.info(`[REMATCH] Room ${actualRoomCode} reset for rematch. Players: ${room.players.map(p => p.displayName).join(', ')}`);
     });
 
     // ─── Live Match Metrics ───────────────────────────────

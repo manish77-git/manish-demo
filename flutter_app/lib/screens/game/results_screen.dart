@@ -7,6 +7,7 @@ import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/socket_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/confetti_painter.dart';
 import '../../widgets/doodle_painter.dart';
@@ -537,7 +538,15 @@ class _ResultsScreenState extends State<ResultsScreen>
                                           Navigator.pushReplacementNamed(context, '/single_player');
                                         }
                                       } else if (_isMultiplayer) {
-                                        Navigator.pushReplacementNamed(context, '/lobby');
+                                        // Emit rematch to reset the room on the server
+                                        final socketProvider = context.read<SocketProvider>();
+                                        socketProvider.emitRematch();
+                                        // Navigate back to lobby — room code is preserved in SocketProvider
+                                        Navigator.pushReplacementNamed(
+                                          context,
+                                          '/lobby',
+                                          arguments: socketProvider.roomCode,
+                                        );
                                       } else {
                                         Navigator.pushReplacementNamed(context, '/drawing');
                                       }

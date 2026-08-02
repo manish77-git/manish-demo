@@ -296,17 +296,18 @@ class MockFirestore {
 
 class MockAuth {
   async verifyIdToken(token) {
-    if (token === 'mock_token_123') {
+    if (token && token.startsWith('mock_token_')) {
+      const uid = token.replace('mock_token_', '');
       return {
-        uid: 'test_user_123',
-        email: 'guest@example.com',
-        name: 'Guest Player',
+        uid: uid,
+        email: `${uid}@example.com`,
+        name: `User ${uid}`,
       };
     }
     return {
-      uid: token.substring(0, 20),
-      email: `${token.substring(0, 8)}@example.com`,
-      name: `User ${token.substring(0, 4)}`,
+      uid: token ? token.substring(0, 20) : 'anonymous',
+      email: 'user@example.com',
+      name: 'User',
     };
   }
 }

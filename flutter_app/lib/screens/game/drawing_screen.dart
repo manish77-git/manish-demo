@@ -63,6 +63,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   int _evaluatingMsgIndex = 0;
   Timer? _evaluatingMsgTimer;
   Timer? _evalTimeoutTimer;
+  Timer? _syncTimer;
 
   static const List<String> _evaluatingMessages = [
     'Analyzing your drawing...',
@@ -169,25 +170,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
     super.initState();
     _currentPrompt = 'Loading...';
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          if (_timeLeft > 0) {
-            _timeLeft--;
-            // Play tick sounds
-            if (_timeLeft <= 10 && _timeLeft > 0) {
-              AudioService().playTick(isLowTime: true);
-            } else if (_timeLeft <= 30 && _timeLeft > 0 && _timeLeft % 5 == 0) {
-              AudioService().playTick();
-            }
-          } else {
-            _timer?.cancel();
-            AudioService().playRoundEnd();
-            _handleTimeUp();
-          }
-        });
-      }
-    });
+    // Start the main 1-second countdown timer
+    _startMainCountdownTimer();
 
     AudioService().playRoundStart();
 
@@ -196,14 +180,17 @@ class _DrawingScreenState extends State<DrawingScreen> {
       drawing.reset();
       drawing.addListener(_onStrokesChanged);
 
-      _timer?.cancel();
-      _timer = Timer.periodic(const Duration(seconds: 10), (t) {
-        if (mounted && _isMultiplayer && _timeLeft > 0) {
-          _syncTimerWithServer();
-        } else {
-          t.cancel();
-        }
-      });
+      // Set up a separate periodic server-time sync timer for multiplayer (every 10s)
+      if (_isMultiplayer) {
+        _syncTimer?.cancel();
+        _syncTimer = Timer.periodic(const Duration(seconds: 10), (t) {
+          if (mounted && _isMultiplayer && _timeLeft > 0) {
+            _syncTimerWithServer();
+          } else {
+            t.cancel();
+          }
+        });
+      }
 
       if (_isMultiplayer) {
         final socketProvider = context.read<SocketProvider>();
@@ -231,6 +218,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
               _totalRounds = totRounds;
               _isCountdown = false;
             });
+            // Restart main countdown with the server-provided duration
+            _startMainCountdownTimer();
           }
         };
 
@@ -280,9 +269,36 @@ class _DrawingScreenState extends State<DrawingScreen> {
             );
           }
         };
+
+        socketProvider.onGameStatus = (status, gameId) {
+          debugPrint('[LOG] Game status changed: $status for game $gameId');
+        };
       }
     });
     _startCountdownTimer();
+  }
+
+  void _startMainCountdownTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          if (_timeLeft > 0) {
+            _timeLeft--;
+            // Play tick sounds
+            if (_timeLeft <= 10 && _timeLeft > 0) {
+              AudioService().playTick(isLowTime: true);
+            } else if (_timeLeft <= 30 && _timeLeft > 0 && _timeLeft % 5 == 0) {
+              AudioService().playTick();
+            }
+          } else {
+            _timer?.cancel();
+            AudioService().playRoundEnd();
+            _handleTimeUp();
+          }
+        });
+      }
+    });
   }
 
   void _startCountdownTimer() {
@@ -313,6 +329,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     _analysisDebounce?.cancel();
     _evaluatingMsgTimer?.cancel();
     _evalTimeoutTimer?.cancel();
+    _syncTimer?.cancel();
     try {
       final drawing = context.read<DrawingProvider>();
       drawing.removeListener(_onStrokesChanged);
@@ -325,6 +342,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       socketProvider.onMatchStarted = null;
       socketProvider.onPlayerFinished = null;
       socketProvider.onGameResults = null;
+      socketProvider.onGameStatus = null;
     } catch (_) {}
     super.dispose();
   }

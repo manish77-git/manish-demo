@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 let aiStatus = {
   initialized: true,
   error: null,
-  model: 'gemini-2.5-flash',
+  model: 'gemini-2.0-flash',
 };
 
 export function getAiStatus() {
@@ -14,16 +14,21 @@ export function getAiStatus() {
 export async function checkGeminiStatus() {
   if (!env.geminiApiKey && !env.groqApiKey) {
     aiStatus.initialized = false;
-    aiStatus.error = 'No AI API Key configured.';
+    aiStatus.error = 'No AI API Key configured (neither GEMINI_API_KEY nor GROQ_API_KEY).';
+    logger.error('[AI STATUS] No AI API keys configured. AI evaluation will fail.');
     return aiStatus;
   }
   aiStatus.initialized = true;
   aiStatus.error = null;
+  const providers = [];
+  if (env.geminiApiKey) providers.push('Gemini');
+  if (env.groqApiKey) providers.push('Groq');
+  logger.info(`[AI STATUS] AI providers available: ${providers.join(', ')}`);
   return aiStatus;
 }
 
 /**
- * Build structured vision prompt for Gemini AI evaluation.
+ * Build structured vision prompt for AI evaluation.
  */
 function buildPrompt(drawingPrompt) {
   return `You are an expert AI art judge for an online drawing game. A user was given the prompt "${drawingPrompt}" and drew the attached image.
@@ -64,6 +69,64 @@ Be objective, consistent, and base evaluation ONLY on the actual drawing lines p
 }
 
 /**
+ * Parse and validate AI response JSON, returning sanitized scores.
+ */
+function parseAndValidateResponse(parsed, drawingPrompt) {
+  const objRec = Number(parsed.objectRecognitionScore);
+  const reqFeat = Number(parsed.requiredFeaturesScore);
+  const comp = Number(parsed.compositionScore);
+  const creat = Number(parsed.creativityScore);
+  const strokeQ = Number(parsed.strokeQualityScore);
+
+  if (isNaN(objRec) || isNaN(reqFeat) || isNaN(comp) || isNaN(creat) || isNaN(strokeQ)) {
+    throw new Error('AI response missing numeric score fields');
+  }
+
+  const objectRecognitionScore = Math.max(0, Math.min(100, Math.round(objRec)));
+  const requiredFeaturesScore = Math.max(0, Math.min(100, Math.round(reqFeat)));
+  const compositionScore = Math.max(0, Math.min(100, Math.round(comp)));
+  const creativityScore = Math.max(0, Math.min(100, Math.round(creat)));
+  const strokeQualityScore = Math.max(0, Math.min(100, Math.round(strokeQ)));
+
+  const compositeScore = Math.round(
+    (objectRecognitionScore * 0.40) +
+    (requiredFeaturesScore * 0.25) +
+    (compositionScore * 0.15) +
+    (creativityScore * 0.10) +
+    (strokeQualityScore * 0.10)
+  );
+
+  const similarityScore = Math.max(0, Math.min(100, Math.round(Number(parsed.similarityScore) || compositeScore)));
+  const accuracy = Math.max(0, Math.min(100, Math.round(Number(parsed.accuracy) || similarityScore)));
+  const validGrades = ['S', 'A', 'B', 'C', 'D', 'F'];
+  const grade = validGrades.includes(parsed.grade) ? parsed.grade : gradeFromScore(similarityScore);
+
+  const reasoning = parsed.reasoning ? String(parsed.reasoning) : `Drawing evaluated for prompt "${drawingPrompt}".`;
+  const missingElements = Array.isArray(parsed.missingElements) ? parsed.missingElements.map(String) : [];
+  const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : [];
+  const weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(String) : [];
+  const labels = Array.isArray(parsed.labels) ? parsed.labels.map(String) : [drawingPrompt];
+
+  return {
+    similarityScore,
+    objectRecognitionScore,
+    requiredFeaturesScore,
+    compositionScore,
+    creativityScore,
+    strokeQualityScore,
+    reasoning,
+    labels,
+    accuracy,
+    missingElements,
+    strengths,
+    weaknesses,
+    grade,
+  };
+}
+
+// ─── Gemini API Provider ─────────────────────────────────────────
+
+/**
  * Call Gemini Vision API directly.
  */
 async function callGeminiApi(imageBuffer, drawingPrompt, modelName) {
@@ -75,6 +138,7 @@ async function callGeminiApi(imageBuffer, drawingPrompt, modelName) {
   const timeoutId = setTimeout(() => controller.abort(), 35000);
 
   try {
+    logger.info(`[AI REQUEST] Gemini API call: model=${modelName}, prompt="${drawingPrompt}"`);
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -103,13 +167,79 @@ async function callGeminiApi(imageBuffer, drawingPrompt, modelName) {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Gemini API [${modelName}] returned status ${res.status}: ${errText}`);
+      const err = new Error(`Gemini API [${modelName}] returned status ${res.status}: ${errText.substring(0, 300)}`);
+      if (res.status === 429) err.isRateLimit = true;
+      throw err;
     }
 
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) throw new Error('Gemini API returned empty response body');
 
+    logger.info(`[AI RESPONSE] Gemini raw response received (${text.length} chars)`);
+    return JSON.parse(text);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ─── Groq Vision API Provider (Secondary Fallback) ───────────────
+
+/**
+ * Call Groq Vision API as secondary AI provider.
+ * Uses llama-4-scout-17b-16e-instruct which supports image understanding.
+ */
+async function callGroqApi(imageBuffer, drawingPrompt) {
+  const apiKey = env.groqApiKey;
+  if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
+
+  const base64Image = imageBuffer.toString('base64');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    logger.info(`[AI REQUEST] Groq Vision API call: model=llama-3.2-11b-vision-instruct, prompt="${drawingPrompt}"`);
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.2-11b-vision-instruct',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: buildPrompt(drawingPrompt) },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/png;base64,${base64Image}`,
+                },
+              },
+            ],
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Groq API returned status ${res.status}: ${errText.substring(0, 300)}`);
+    }
+
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error('Groq API returned empty response body');
+
+    logger.info(`[AI RESPONSE] Groq raw response received (${text.length} chars)`);
     return JSON.parse(text);
   } finally {
     clearTimeout(timeoutId);
@@ -117,107 +247,96 @@ async function callGeminiApi(imageBuffer, drawingPrompt, modelName) {
 }
 
 /**
- * Evaluate drawing image using Gemini Vision with 3 retries and zero fallback scores.
+ * Sleep with exponential backoff and jitter.
+ */
+function backoffSleep(attempt) {
+  const baseMs = Math.pow(2, attempt) * 1000;
+  const jitter = Math.random() * 1000;
+  return new Promise(resolve => setTimeout(resolve, baseMs + jitter));
+}
+
+// ─── Main Evaluation Entry Point ─────────────────────────────────
+
+/**
+ * Evaluate drawing image using AI Vision with multi-provider fallback.
+ *
+ * Strategy:
+ * 1. Try Gemini (primary) with multiple models, 3 retries each with exponential backoff + jitter
+ * 2. If all Gemini attempts fail, try Groq Vision (secondary) with 3 retries
+ * 3. If BOTH providers fail completely, THROW an error — never return placeholder scores
  */
 export async function evaluateWithGemini(imageBuffer, drawingPrompt) {
-  const MAX_RETRIES = 3;
-  const models = ['gemini-2.5-flash', 'gemini-flash-latest'];
+  const MAX_RETRIES = 2;
+  // Models supported by v1beta API endpoint
+  const geminiModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
   let lastError = null;
 
-  for (const model of models) {
-    let attempt = 0;
-    while (attempt < MAX_RETRIES) {
-      attempt++;
-      logger.info(`Attempt ${attempt}/${MAX_RETRIES} with model [${model}] for prompt "${drawingPrompt}"...`);
+  // ─── Phase 1: Try Gemini Models ───────────────────────────
+  if (env.geminiApiKey) {
+    for (const model of geminiModels) {
+      let attempt = 0;
+      while (attempt < MAX_RETRIES) {
+        attempt++;
+        logger.info(`[AI EVAL] Gemini attempt ${attempt}/${MAX_RETRIES} with model [${model}] for prompt "${drawingPrompt}"`);
 
-      try {
-        const parsed = await callGeminiApi(imageBuffer, drawingPrompt, model);
+        try {
+          const parsed = await callGeminiApi(imageBuffer, drawingPrompt, model);
+          const result = parseAndValidateResponse(parsed, drawingPrompt);
 
-        // Validate score values strictly without arbitrary defaults
-        const objRec = Number(parsed.objectRecognitionScore);
-        const reqFeat = Number(parsed.requiredFeaturesScore);
-        const comp = Number(parsed.compositionScore);
-        const creat = Number(parsed.creativityScore);
-        const strokeQ = Number(parsed.strokeQualityScore);
+          logger.info(`[AI EVAL SUCCESS] Gemini [${model}]: prompt="${drawingPrompt}" score=${result.similarityScore} grade=${result.grade}`);
+          return result;
+        } catch (error) {
+          lastError = error;
+          logger.warn(`[AI EVAL FAIL] Gemini attempt ${attempt}/${MAX_RETRIES} with [${model}]: ${error.message}`);
 
-        if (isNaN(objRec) || isNaN(reqFeat) || isNaN(comp) || isNaN(creat) || isNaN(strokeQ)) {
-          throw new Error('Gemini response missing numeric score fields');
-        }
+          if (error.isRateLimit) {
+            logger.warn(`[AI EVAL RATE LIMIT] Model [${model}] quota exceeded (429). Switching to next model immediately.`);
+            break; // Break inner loop to try next model quota bucket right away
+          }
 
-        const objectRecognitionScore = Math.max(0, Math.min(100, Math.round(objRec)));
-        const requiredFeaturesScore = Math.max(0, Math.min(100, Math.round(reqFeat)));
-        const compositionScore = Math.max(0, Math.min(100, Math.round(comp)));
-        const creativityScore = Math.max(0, Math.min(100, Math.round(creat)));
-        const strokeQualityScore = Math.max(0, Math.min(100, Math.round(strokeQ)));
-
-        const compositeScore = Math.round(
-          (objectRecognitionScore * 0.40) +
-          (requiredFeaturesScore * 0.25) +
-          (compositionScore * 0.15) +
-          (creativityScore * 0.10) +
-          (strokeQualityScore * 0.10)
-        );
-
-        const similarityScore = Math.max(0, Math.min(100, Math.round(Number(parsed.similarityScore) || compositeScore)));
-        const accuracy = Math.max(0, Math.min(100, Math.round(Number(parsed.accuracy) || similarityScore)));
-        const validGrades = ['S', 'A', 'B', 'C', 'D', 'F'];
-        const grade = validGrades.includes(parsed.grade) ? parsed.grade : gradeFromScore(similarityScore);
-
-        const reasoning = parsed.reasoning ? String(parsed.reasoning) : `Drawing evaluated for prompt "${drawingPrompt}".`;
-        const missingElements = Array.isArray(parsed.missingElements) ? parsed.missingElements.map(String) : [];
-        const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : [];
-        const weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(String) : [];
-        const labels = Array.isArray(parsed.labels) ? parsed.labels.map(String) : [drawingPrompt];
-
-        logger.info(`Gemini vision evaluation success: prompt="${drawingPrompt}" score=${similarityScore} grade=${grade}`);
-
-        return {
-          similarityScore,
-          objectRecognitionScore,
-          requiredFeaturesScore,
-          compositionScore,
-          creativityScore,
-          strokeQualityScore,
-          reasoning,
-          labels,
-          accuracy,
-          missingElements,
-          strengths,
-          weaknesses,
-          grade,
-        };
-      } catch (error) {
-        lastError = error;
-        logger.warn(`Attempt ${attempt}/${MAX_RETRIES} with [${model}] failed: ${error.message}`);
-
-        if (attempt < MAX_RETRIES) {
-          const backoffMs = Math.pow(2, attempt) * 1000;
-          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          if (attempt < MAX_RETRIES) {
+            await backoffSleep(attempt);
+          }
         }
       }
     }
+    logger.warn(`[AI EVAL] All Gemini attempts exhausted for prompt "${drawingPrompt}". Falling back to Groq Vision.`);
+  } else {
+    logger.warn('[AI EVAL] No GEMINI_API_KEY configured. Skipping Gemini, trying Groq.');
   }
 
-  // If all retries fail, return a structured status with exact message without crashing process
-  logger.error(`All Gemini AI evaluation attempts failed for prompt "${drawingPrompt}". Error: ${lastError?.message}`);
-  return {
-    unavailable: true,
-    error: 'AI evaluation is temporarily unavailable. Please try again.',
-    similarityScore: 0,
-    objectRecognitionScore: 0,
-    requiredFeaturesScore: 0,
-    compositionScore: 0,
-    creativityScore: 0,
-    strokeQualityScore: 0,
-    reasoning: 'AI evaluation is temporarily unavailable. Please try again.',
-    labels: [],
-    accuracy: 0,
-    missingElements: [],
-    strengths: [],
-    weaknesses: [],
-    grade: 'F',
-  };
+  // ─── Phase 2: Try Groq Vision (Secondary Provider) ────────
+  if (env.groqApiKey) {
+    let attempt = 0;
+    while (attempt < MAX_RETRIES) {
+      attempt++;
+      logger.info(`[AI EVAL] Groq attempt ${attempt}/${MAX_RETRIES} for prompt "${drawingPrompt}"`);
+
+      try {
+        const parsed = await callGroqApi(imageBuffer, drawingPrompt);
+        const result = parseAndValidateResponse(parsed, drawingPrompt);
+
+        logger.info(`[AI EVAL SUCCESS] Groq Vision: prompt="${drawingPrompt}" score=${result.similarityScore} grade=${result.grade}`);
+        return result;
+      } catch (error) {
+        lastError = error;
+        logger.warn(`[AI EVAL FAIL] Groq attempt ${attempt}/${MAX_RETRIES}: ${error.message}`);
+
+        if (attempt < MAX_RETRIES) {
+          await backoffSleep(attempt);
+        }
+      }
+    }
+    logger.warn(`[AI EVAL] All Groq attempts exhausted for prompt "${drawingPrompt}".`);
+  } else {
+    logger.warn('[AI EVAL] No GROQ_API_KEY configured. No secondary provider available.');
+  }
+
+  // ─── Phase 3: Total Failure — THROW, never return placeholder ──
+  const errorMsg = `All AI evaluation providers failed for prompt "${drawingPrompt}" after exhausting all retries. Last error: ${lastError?.message}`;
+  logger.error(`[AI EVAL FATAL] ${errorMsg}`);
+  throw new Error(errorMsg);
 }
 
 function gradeFromScore(score) {
@@ -230,38 +349,74 @@ function gradeFromScore(score) {
 }
 
 export async function analyzeLiveWithGemini(imageBuffer, drawingPrompt) {
+  // Live analysis is best-effort — use Gemini if available, Groq as fallback, graceful default on failure
   const apiKey = env.geminiApiKey;
-  if (!apiKey) return { recognitionRate: 50, detectedObject: 'sketch', missingFeatures: [], suggestions: 'Keep sketching!' };
+  const groqKey = env.groqApiKey;
 
   try {
-    const base64Image = imageBuffer.toString('base64');
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `Analyze intermediate sketch for prompt "${drawingPrompt}" and return JSON: {"recognitionRate": 70, "detectedObject": "cat", "missingFeatures": ["ears"], "suggestions": "Add ears"}` },
-              { inline_data: { mime_type: 'image/png', data: base64Image } }
-            ]
-          }
-        ],
-        generationConfig: { response_mime_type: 'application/json' }
-      }),
-    });
+    if (apiKey) {
+      const base64Image = imageBuffer.toString('base64');
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: `Analyze intermediate sketch for prompt "${drawingPrompt}" and return JSON: {"recognitionRate": 70, "detectedObject": "cat", "missingFeatures": ["ears"], "suggestions": "Add ears"}` },
+                { inline_data: { mime_type: 'image/png', data: base64Image } }
+              ]
+            }
+          ],
+          generationConfig: { response_mime_type: 'application/json' }
+        }),
+      });
 
-    if (!res.ok) throw new Error('Live analysis request failed');
-    const data = await res.json();
-    return JSON.parse(data.candidates[0].content.parts[0].text);
+      if (res.ok) {
+        const data = await res.json();
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+      }
+    }
+
+    // Fallback to Groq for live analysis
+    if (groqKey) {
+      const base64Image = imageBuffer.toString('base64');
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-4-scout-17b-16e-instruct',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: `Analyze intermediate sketch for prompt "${drawingPrompt}" and return JSON: {"recognitionRate": 70, "detectedObject": "cat", "missingFeatures": ["ears"], "suggestions": "Add ears"}` },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
+            ]
+          }],
+          temperature: 0.3,
+          max_tokens: 256,
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return JSON.parse(data.choices[0].message.content);
+      }
+    }
   } catch (_) {
-    return {
-      recognitionRate: 50,
-      detectedObject: 'sketch',
-      missingFeatures: ['main outlines'],
-      suggestions: `Keep sketching the main features of "${drawingPrompt}".`,
-    };
+    // Live analysis is non-critical — fall through to default
   }
+
+  return {
+    recognitionRate: 50,
+    detectedObject: 'sketch',
+    missingFeatures: ['main outlines'],
+    suggestions: `Keep sketching the main features of "${drawingPrompt}".`,
+  };
 }
 
 export default { evaluateWithGemini, checkGeminiStatus, getAiStatus, analyzeLiveWithGemini };

@@ -15,16 +15,14 @@ function getGrade(score) {
   return 'F';
 }
 
-// buildFallbackResult removed — AI evaluation errors are thrown directly to prevent false/arbitrary scores.
-
 /**
- * Evaluate a single drawing against a prompt using Gemini.
+ * Evaluate a single drawing against a prompt using AI Vision.
  *
  * Pipeline:
  * 1. Extract image features (blank detection)
  * 2. If blank → return 0/F immediately
- * 3. Call Gemini Vision API for semantic evaluation
- * 4. On total failure → returns graceful fallback (never throws to caller)
+ * 3. Call AI Vision API (Gemini primary, Groq fallback) for semantic evaluation
+ * 4. On total AI failure → THROW (never return placeholder scores)
  *
  * @param {Buffer} imageBuffer - Raw PNG image from user
  * @param {string} prompt - The drawing prompt
@@ -34,7 +32,7 @@ function getGrade(score) {
 export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
   const { drawingTimeSeconds = 60, timeTakenSeconds = 60, streak = 0 } = options;
 
-  logger.info(`Evaluating drawing for prompt: "${prompt}"`);
+  logger.info(`[EVAL] Starting evaluation for prompt: "${prompt}"`);
 
   // 1. Preprocess and extract features
   let processedImage, imageFeatures;
@@ -42,14 +40,15 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     const result = await preprocessImage(imageBuffer, { width: 256, height: 256 });
     processedImage = result.buffer;
     imageFeatures = await extractImageFeatures(processedImage);
+    logger.info(`[EVAL] Image features: coverage=${imageFeatures.coverage}, edgeDensity=${imageFeatures.edgeDensity}, isBlank=${imageFeatures.isBlank}`);
   } catch (err) {
-    logger.warn(`Image preprocessing failed: ${err.message}. Using raw buffer.`);
-    imageFeatures = { isBlank: false, coverage: 0.5, edgeDensity: 0.5 };
+    logger.warn(`[EVAL] Image preprocessing failed: ${err.message}. Using raw buffer with default features.`);
+    imageFeatures = { isBlank: false, coverage: 0.5, edgeDensity: 0.5, hasContent: true };
   }
 
   // 2. Blank drawing check
   if (imageFeatures.isBlank) {
-    logger.warn('Blank drawing submitted');
+    logger.warn('[EVAL] Blank drawing submitted — returning 0/F');
     return {
       score: 0,
       grade: 'F',
@@ -69,57 +68,11 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     };
   }
 
-  // 3. Call Gemini Vision evaluation
+  // 3. Call AI Vision evaluation (Gemini primary → Groq fallback)
+  // This will THROW if all providers fail — no placeholder scores
   const aiResult = await evaluateWithGemini(imageBuffer, prompt);
 
-  if (aiResult.unavailable) {
-    logger.info(`Gemini API unavailable — using visual feature evaluation pipeline for prompt "${prompt}"`);
-    const covScore = Math.min(100, Math.round((imageFeatures.coverage || 0.15) * 400));
-    const edgeScore = Math.min(100, Math.round((imageFeatures.edgeDensity || 0.1) * 500));
-    const objRecScore = Math.max(45, Math.min(95, Math.round((covScore * 0.5) + (edgeScore * 0.5))));
-    const reqFeatScore = Math.max(40, Math.min(92, Math.round(objRecScore * 0.95)));
-    const compScore = Math.max(50, Math.min(96, Math.round(70 + (imageFeatures.stdDev || 10) * 0.3)));
-    const creatScore = Math.max(50, Math.min(94, Math.round(65 + edgeScore * 0.3)));
-    const strokeQScore = Math.max(55, Math.min(95, Math.round(72 + (imageFeatures.edgeDensity || 0.1) * 200)));
-
-    const featureAiScore = Math.round(
-      (objRecScore * 0.40) + (reqFeatScore * 0.25) + (compScore * 0.15) + (creatScore * 0.10) + (strokeQScore * 0.10)
-    );
-
-    const { score, breakdown } = calculateCompositeScore({
-      aiScore: featureAiScore,
-      drawingTimeSeconds,
-      timeTakenSeconds,
-      imageFeatures,
-      streak,
-    });
-
-    const grade = getGrade(score);
-
-    return {
-      score,
-      grade,
-      confidence: 85,
-      explanation: [
-        `Drawing analyzed for prompt "${prompt}".`,
-        `Good line structure and contour balance detected.`,
-        `Clear object representation with ${Math.round((imageFeatures.coverage || 0.1) * 100)}% canvas detail.`
-      ],
-      labels: [prompt, 'sketch', 'line art'],
-      objectRecognitionScore: objRecScore,
-      requiredFeaturesScore: reqFeatScore,
-      compositionScore: compScore,
-      creativityScore: creatScore,
-      strokeQualityScore: strokeQScore,
-      reasoning: `Drawing analyzed for prompt "${prompt}" with ${score}% overall match.`,
-      missingElements: [],
-      strengths: ['Good outline definition', 'Active stroke balance'],
-      weaknesses: ['Add subtle shading for extra detail'],
-      breakdown,
-    };
-  }
-
-  // 4. Calculate composite score using Gemini score as base
+  // 4. Calculate composite score using AI score as base
   const { score, breakdown } = calculateCompositeScore({
     aiScore: aiResult.similarityScore,
     drawingTimeSeconds,
@@ -137,7 +90,7 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     ...(aiResult.strengths || []).map(strength => `Strength: ${strength}`),
   ];
 
-  logger.info(`Drawing evaluated: prompt="${prompt}", score=${score}, grade=${grade}`);
+  logger.info(`[EVAL COMPLETE] prompt="${prompt}", score=${score}, grade=${grade}, aiRawScore=${aiResult.similarityScore}`);
 
   return {
     score,
@@ -156,7 +109,7 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     weaknesses: aiResult.weaknesses,
     breakdown: {
       ...breakdown,
-      geminiRawScore: aiResult.similarityScore,
+      aiRawScore: aiResult.similarityScore,
       objectRecognitionScore: aiResult.objectRecognitionScore,
       requiredFeaturesScore: aiResult.requiredFeaturesScore,
       compositionScore: aiResult.compositionScore,
@@ -172,120 +125,110 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
 }
 
 /**
- * Evaluate a single drawing with a 30-second timeout and 1 automatic retry on failure.
+ * Evaluate a single drawing with timeout and automatic retries with exponential backoff.
+ * 3 attempts total (initial + 2 retries).
  */
 export async function evaluateDrawingWithRetry(imageBuffer, prompt, options = {}) {
-  const timeoutMs = options.timeoutMs || 30000;
-  const maxAttempts = 2; // initial attempt + 1 retry
+  const timeoutMs = options.timeoutMs || 45000; // 45s timeout per attempt
+  const maxAttempts = 3;
 
-  logger.info(`[LOG] Evaluation started for prompt "${prompt}"`);
+  logger.info(`[EVAL RETRY] Starting evaluation with up to ${maxAttempts} attempts for prompt "${prompt}"`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      logger.info(`[LOG] AI request sent (attempt ${attempt}/${maxAttempts})`);
+      logger.info(`[EVAL RETRY] Attempt ${attempt}/${maxAttempts} — sending AI request`);
 
       let timeoutId;
       const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('AI evaluation timed out (30s limit exceeded)')), timeoutMs);
+        timeoutId = setTimeout(() => reject(new Error(`AI evaluation timed out after ${timeoutMs / 1000}s`)), timeoutMs);
       });
 
       const evalPromise = evaluateDrawing(imageBuffer, prompt, options);
       const result = await Promise.race([evalPromise, timeoutPromise]);
       clearTimeout(timeoutId);
 
-      logger.info(`[LOG] AI response received (attempt ${attempt})`);
+      logger.info(`[EVAL RETRY] AI response received on attempt ${attempt}: score=${result.score}`);
       return result;
     } catch (err) {
-      logger.warn(`AI evaluation attempt ${attempt} failed: ${err.message}`);
+      logger.warn(`[EVAL RETRY] Attempt ${attempt}/${maxAttempts} failed: ${err.message}`);
       if (attempt === maxAttempts) {
-        logger.error(`AI evaluation failed after ${maxAttempts} attempts for prompt "${prompt}"`);
+        logger.error(`[EVAL RETRY FATAL] All ${maxAttempts} evaluation attempts failed for prompt "${prompt}"`);
         throw err;
       }
-      logger.info(`Retrying AI evaluation automatically (attempt ${attempt + 1})...`);
+      // Exponential backoff between retries
+      const backoffMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+      logger.info(`[EVAL RETRY] Backing off ${Math.round(backoffMs)}ms before attempt ${attempt + 1}...`);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
     }
   }
 }
 
 /**
  * Evaluate all drawings for a game session in parallel.
+ *
+ * IMPORTANT: Every drawing MUST be evaluated by AI. If AI fails for a player,
+ * the error is thrown — never assign placeholder/random scores.
  */
 export async function evaluateAllDrawings(submissions, prompt, drawingTimeSeconds, gameStartTime) {
   const results = {};
   const startTime = gameStartTime ? new Date(gameStartTime).getTime() : Date.now();
+  const playerIds = Object.keys(submissions || {});
 
-  logger.info(`[LOG] Evaluation started for ${Object.keys(submissions || {}).length} submission(s)`);
+  logger.info(`[EVAL ALL] Starting parallel evaluation for ${playerIds.length} submission(s), prompt="${prompt}"`);
 
   const evaluationPromises = Object.entries(submissions || {}).map(async ([userId, submission]) => {
-    try {
-      const submittedAt = submission.submittedAt ? new Date(submission.submittedAt).getTime() : Date.now();
-      const timeTakenSeconds = Math.round((submittedAt - startTime) / 1000);
-      
-      let drawingBuffer = null;
-      if (submission.drawingBuffer) {
-        if (Buffer.isBuffer(submission.drawingBuffer)) {
-          drawingBuffer = submission.drawingBuffer;
-        } else if (submission.drawingBuffer.type === 'Buffer') {
-          drawingBuffer = Buffer.from(submission.drawingBuffer.data);
-        } else {
-          drawingBuffer = Buffer.from(submission.drawingBuffer);
-        }
+    const submittedAt = submission.submittedAt ? new Date(submission.submittedAt).getTime() : Date.now();
+    const timeTakenSeconds = Math.round((submittedAt - startTime) / 1000);
+
+    let drawingBuffer = null;
+    if (submission.drawingBuffer) {
+      if (Buffer.isBuffer(submission.drawingBuffer)) {
+        drawingBuffer = submission.drawingBuffer;
+      } else if (submission.drawingBuffer.type === 'Buffer') {
+        drawingBuffer = Buffer.from(submission.drawingBuffer.data);
+      } else {
+        drawingBuffer = Buffer.from(submission.drawingBuffer);
       }
-
-      if (!drawingBuffer || drawingBuffer.length === 0) {
-        logger.warn(`No valid drawing buffer found for user ${userId}, marking as blank.`);
-        results[userId] = {
-          score: 0,
-          grade: 'F',
-          confidence: 0,
-          explanation: ['No drawing submitted.'],
-          labels: [],
-          objectRecognitionScore: 0,
-          requiredFeaturesScore: 0,
-          compositionScore: 0,
-          creativityScore: 0,
-          strokeQualityScore: 0,
-          reasoning: 'No drawing submitted.',
-          missingElements: ['All elements missing.'],
-          strengths: [],
-          weaknesses: ['No submission'],
-          breakdown: { aiScore: 0 },
-        };
-        return;
-      }
-
-      const result = await evaluateDrawingWithRetry(drawingBuffer, prompt, {
-        drawingTimeSeconds: drawingTimeSeconds || 60,
-        timeTakenSeconds: Math.min(Math.max(0, timeTakenSeconds), drawingTimeSeconds || 60),
-        streak: 0,
-      });
-
-      results[userId] = result;
-    } catch (err) {
-      logger.error(`Failed to evaluate drawing for user ${userId}: ${err.message}`);
-      results[userId] = {
-        score: 50,
-        grade: 'D',
-        confidence: 50,
-        explanation: ['AI evaluation encountered an error. Score estimated based on strokes.'],
-        labels: [prompt, 'sketch'],
-        objectRecognitionScore: 50,
-        requiredFeaturesScore: 50,
-        compositionScore: 50,
-        creativityScore: 50,
-        strokeQualityScore: 50,
-        reasoning: 'Evaluation fallback applied after AI retry failure.',
-        missingElements: [],
-        strengths: [],
-        weaknesses: ['Evaluation error'],
-        breakdown: { aiScore: 50 },
-        evaluationError: true,
-      };
     }
+
+    if (!drawingBuffer || drawingBuffer.length === 0) {
+      logger.warn(`[EVAL ALL] No valid drawing buffer for user ${userId} — scoring as blank (0/F)`);
+      results[userId] = {
+        score: 0,
+        grade: 'F',
+        confidence: 0,
+        explanation: ['No drawing submitted.'],
+        labels: [],
+        objectRecognitionScore: 0,
+        requiredFeaturesScore: 0,
+        compositionScore: 0,
+        creativityScore: 0,
+        strokeQualityScore: 0,
+        reasoning: 'No drawing submitted.',
+        missingElements: ['All elements missing.'],
+        strengths: [],
+        weaknesses: ['No submission'],
+        breakdown: { aiScore: 0 },
+      };
+      return;
+    }
+
+    // This will THROW if AI evaluation completely fails — no placeholders
+    logger.info(`[EVAL ALL] Evaluating drawing for user ${userId} (${drawingBuffer.length} bytes)`);
+    const result = await evaluateDrawingWithRetry(drawingBuffer, prompt, {
+      drawingTimeSeconds: drawingTimeSeconds || 60,
+      timeTakenSeconds: Math.min(Math.max(0, timeTakenSeconds), drawingTimeSeconds || 60),
+      streak: 0,
+    });
+
+    logger.info(`[EVAL ALL] User ${userId} scored: ${result.score} (${result.grade})`);
+    results[userId] = result;
   });
 
   await Promise.all(evaluationPromises);
+
+  logger.info(`[EVAL ALL] All ${playerIds.length} evaluations complete`);
   return results;
 }
 
 export default { evaluateDrawing, evaluateDrawingWithRetry, evaluateAllDrawings };
-

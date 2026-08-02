@@ -58,6 +58,25 @@ class _LobbyScreenState extends State<LobbyScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final socketProvider = context.read<SocketProvider>();
+
+      // Navigate to drawing screen on countdown (immediate transition)
+      socketProvider.onMatchCountdown = (sec, prompt, duration, currentRound, totalRounds) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            '/drawing',
+            arguments: {
+              'prompt': prompt,
+              'duration': duration,
+              'isMultiplayer': true,
+              'currentRound': currentRound,
+              'totalRounds': totalRounds,
+            },
+          );
+        }
+      };
+
+      // Fallback: also handle match:start in case countdown was missed
       socketProvider.onMatchStarted = (prompt, duration, currentRound, totalRounds) {
         if (mounted) {
           Navigator.pushReplacementNamed(
@@ -97,6 +116,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
           });
         }
       };
+
+      // Handle rematch: when rematch is ready, room:update will refresh players
+      socketProvider.onRematchReady = (roomCode) {
+        if (mounted) {
+          debugPrint('[LobbyScreen] Rematch ready for room $roomCode');
+        }
+      };
     });
   }
 
@@ -104,9 +130,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void dispose() {
     try {
       final socketProvider = context.read<SocketProvider>();
+      socketProvider.onMatchCountdown = null;
       socketProvider.onMatchStarted = null;
       socketProvider.onChatMessageReceived = null;
       socketProvider.onChatReactionReceived = null;
+      socketProvider.onRematchReady = null;
     } catch (_) {}
     super.dispose();
   }

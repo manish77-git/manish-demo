@@ -81,6 +81,14 @@ class LobbyManager {
       return room;
     }
 
+    // Prevent duplicate joins — if uid is already in room (not a reconnect), reject
+    const duplicateCheck = room.players.find(p => p.uid === uid);
+    if (duplicateCheck) {
+      // Already handled above as reconnection, this shouldn't happen, but guard anyway
+      console.warn(`[LOBBY] Duplicate join attempt blocked: uid=${uid} already in room ${roomCode}`);
+      return room;
+    }
+
     // Join as spectator if game is in progress or room is full
     const isSpectator = room.status === 'playing' || room.players.length >= room.settings.maxPlayers;
 
@@ -100,6 +108,7 @@ class LobbyManager {
       this.drawings.set(roomCode, {});
     }
 
+    console.log(`[LOBBY] Player joined: uid=${uid}, room=${roomCode}, isSpectator=${isSpectator}, totalPlayers=${room.players.length}`);
     return room;
   }
 
@@ -237,6 +246,32 @@ class LobbyManager {
       rounds,
       totalRounds,
     };
+  }
+
+  /**
+   * Reset a room for a rematch without creating a new room.
+   * Preserves room code, player list, and settings.
+   * Clears match state, drawings, and resets player ready status.
+   */
+  resetForRematch(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return null;
+
+    // Reset room status
+    room.status = 'lobby';
+    room.matchState = null;
+
+    // Reset all players to not-ready (host stays ready)
+    room.players.forEach(p => {
+      p.isReady = p.isHost;
+      p.isSpectator = false;
+    });
+
+    // Clear drawings
+    this.drawings.set(roomCode, {});
+
+    console.log(`[LOBBY] Room ${roomCode} reset for rematch. Players: ${room.players.map(p => p.displayName).join(', ')}`);
+    return room;
   }
 
   // ─── Drawing / Strokes ──────────────────────────────────

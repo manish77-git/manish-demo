@@ -26,11 +26,23 @@ export const uploadMiddleware = upload.single('drawing');
 export async function triggerMatchEvaluation(gameId, io) {
   const canEvaluate = await gameService.transitionToEvaluating(gameId);
   if (!canEvaluate) {
-    logger.info(`Match evaluation already in progress or completed for game ${gameId}`);
+    logger.info(`[EVAL TRIGGER] Already in progress or completed for game ${gameId}`);
     return;
   }
 
-  logger.info(`[LOG] Evaluation started for game ${gameId}`);
+  logger.info(`[EVAL TRIGGER] Evaluation started for game ${gameId}`);
+
+  // Cancel the server-side auto-eval timer since evaluation is starting now
+  try {
+    const { default: lobbyManagerModule } = await import('../services/lobbyManager.js');
+    const room = lobbyManagerModule.rooms?.get(gameId);
+    if (room && room._autoEvalTimer) {
+      clearTimeout(room._autoEvalTimer);
+      room._autoEvalTimer = null;
+      logger.info(`[EVAL TRIGGER] Auto-eval timer cancelled for game ${gameId} (evaluation started early)`);
+    }
+  } catch (_) {}
+
   if (io) {
     io.to(gameId).emit('game:status', { status: 'evaluating', gameId });
   }
@@ -157,11 +169,12 @@ export async function submitDrawing(req, res, next) {
 
     // If all players submitted, immediately trigger parallel evaluation
     if (allSubmitted) {
-      logger.info(`[LOG] All players submitted for game ${gameId}, starting parallel evaluation...`);
-      // Run evaluation asynchronously or await it
+      logger.info(`[SUBMIT] All players submitted for game ${gameId}, starting AI evaluation...`);
       triggerMatchEvaluation(gameId, io).catch(err => {
-        logger.error(`Error in match evaluation for game ${gameId}:`, err);
+        logger.error(`[SUBMIT] Error in match evaluation for game ${gameId}: ${err.message}`);
       });
+    } else {
+      logger.info(`[SUBMIT] Waiting for more submissions in game ${gameId}`);
     }
 
     res.json({
@@ -183,7 +196,7 @@ export async function getGameDrawings(req, res, next) {
   try {
     const session = await gameService.getGameSession(req.params.gameId);
 
-    if (session.status !== 'results') {
+    if (session.status !== 'completed' && session.status !== 'results') {
       return res.status(400).json({
         success: false,
         error: { message: 'Game results not yet available' },
@@ -293,6 +306,13 @@ export async function evaluateSoloDrawing(req, res, next) {
         confidence: evaluation.confidence,
         explanation: evaluation.explanation,
         labels: evaluation.labels,
+        objectRecognitionScore: evaluation.objectRecognitionScore,
+        requiredFeaturesScore: evaluation.requiredFeaturesScore,
+        compositionScore: evaluation.compositionScore,
+        creativityScore: evaluation.creativityScore,
+        strokeQualityScore: evaluation.strokeQualityScore,
+        strengths: evaluation.strengths,
+        weaknesses: evaluation.weaknesses,
         breakdown: evaluation.breakdown,
       },
     });

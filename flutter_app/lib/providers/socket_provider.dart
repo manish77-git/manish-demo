@@ -27,6 +27,8 @@ class SocketProvider extends ChangeNotifier {
   void Function(String prompt, int duration, int currentRound, int totalRounds)? onMatchStarted;
   void Function(String userId, String displayName)? onPlayerFinished;
   void Function(Map<String, dynamic> resultsData)? onGameResults;
+  void Function(String status, String gameId)? onGameStatus;
+  void Function(String roomCode)? onRematchReady;
   void Function(Map<String, dynamic> history)? onDrawingHistory;
   void Function(String userId, List<dynamic> strokes)? onDrawingStroke;
   void Function(String userId)? onDrawingClear;
@@ -239,6 +241,23 @@ class SocketProvider extends ChangeNotifier {
       }
     });
 
+    _socket!.on('game:status', (data) {
+      debugPrint('[SocketProvider] Game status: $data');
+      if (onGameStatus != null) {
+        final status = data['status'] as String? ?? '';
+        final gameId = data['gameId'] as String? ?? '';
+        onGameStatus!(status, gameId);
+      }
+    });
+
+    _socket!.on('room:rematch_ready', (data) {
+      debugPrint('[SocketProvider] Rematch ready: $data');
+      if (onRematchReady != null) {
+        final roomCode = data['roomCode'] as String? ?? '';
+        onRematchReady!(roomCode);
+      }
+    });
+
     _socket!.connect();
   }
 
@@ -252,21 +271,7 @@ class SocketProvider extends ChangeNotifier {
         'displayName': displayName,
       });
     } else {
-      // Fallback offline room creation
-      final randomCode = (1000 + (DateTime.now().millisecondsSinceEpoch % 8999)).toString();
-      _roomCode = randomCode;
-      _roomPlayers = [
-        {
-          'socketId': 'local_socket',
-          'uid': uid,
-          'displayName': displayName,
-          'isHost': true,
-          'isReady': true,
-          'isOnline': true,
-          'isSpectator': false,
-        }
-      ];
-      _connectionStatus = ConnectionStatus.connected;
+      _errorMessage = 'Not connected to server. Please check your connection and try again.';
       notifyListeners();
     }
   }
@@ -286,19 +291,7 @@ class SocketProvider extends ChangeNotifier {
         'displayName': displayName,
       });
     } else {
-      // Fallback offline room join
-      _roomPlayers = [
-        {
-          'socketId': 'local_socket_join',
-          'uid': uid,
-          'displayName': displayName,
-          'isHost': false,
-          'isReady': true,
-          'isOnline': true,
-          'isSpectator': false,
-        }
-      ];
-      _connectionStatus = ConnectionStatus.connected;
+      _errorMessage = 'Not connected to server. Please check your connection and try again.';
       notifyListeners();
     }
   }
@@ -329,6 +322,13 @@ class SocketProvider extends ChangeNotifier {
     _socket?.emit('match:next_round', {
       'roomCode': _roomCode,
     });
+  }
+
+  void emitRematch() {
+    _socket?.emit('room:rematch', {
+      'roomCode': _roomCode,
+    });
+    debugPrint('[SocketProvider] Rematch requested for room $_roomCode');
   }
 
   void emitStroke(List<Map<String, dynamic>> strokesJson) {
