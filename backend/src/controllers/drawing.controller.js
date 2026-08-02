@@ -94,16 +94,25 @@ export async function triggerMatchEvaluation(gameId, io) {
       explanation: scoreData.explanation,
       strengths: scoreData.strengths || [],
       weaknesses: scoreData.weaknesses || [],
+      objectRecognitionScore: scoreData.objectRecognitionScore ?? 0,
+      requiredFeaturesScore: scoreData.requiredFeaturesScore ?? 0,
+      compositionScore: scoreData.compositionScore ?? 0,
+      creativityScore: scoreData.creativityScore ?? 0,
+      strokeQualityScore: scoreData.strokeQualityScore ?? 0,
       imageData: base64Img,
     };
+
+    logger.info(`[PARSED SCORE] User ${userId} (${scoreData.displayName}): Score=${scoreData.score}, Grade=${scoreData.grade}, ObjRec=${scoreData.objectRecognitionScore}, ReqFeat=${scoreData.requiredFeaturesScore}, Comp=${scoreData.compositionScore}, Creat=${scoreData.creativityScore}, Stroke=${scoreData.strokeQualityScore}`);
   }
 
-  // Calculate winner
+  // Calculate winner accurately (highest score wins)
   const rankings = rankPlayers(scores);
   const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
   const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
   const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
-  logger.info(`[LOG] Winner calculated for game ${gameId}: ${winnerId}`);
+
+  const standingsLog = sortedDrawings.map(d => `${d.displayName} (${d.userId}): ${d.score}pts`).join(' vs ');
+  logger.info(`[WINNER CALC] Game ${gameId} Standings: ${standingsLog} | Declared Winner: ${winnerId}`);
 
   // Emit results to all players immediately
   if (io) {
@@ -150,9 +159,12 @@ export async function submitDrawing(req, res, next) {
       });
     }
 
-    // Record submission
+    logger.info(`[IMAGE UPLOAD] Received canvas PNG upload from user ${req.user.uid} (${req.user.displayName}), size: ${req.file.buffer.length} bytes for game ${gameId}`);
+
+    // Record submission with user's displayName
     const { allSubmitted } = await gameService.submitDrawing(gameId, req.user.uid, {
       drawingBuffer: req.file.buffer,
+      displayName: req.user.displayName,
       drawingUrl: null,
     });
 

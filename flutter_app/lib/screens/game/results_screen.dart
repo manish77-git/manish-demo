@@ -201,15 +201,38 @@ class _ResultsScreenState extends State<ResultsScreen>
     final textMuted = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
     final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
-    final myUid = context.read<AuthProvider>().uid;
+    final drawingsMap = _drawingsData?['drawings'] as Map<String, dynamic>? ?? {};
+    String myUid = context.read<AuthProvider>().uid;
+
+    if (_isMultiplayer && drawingsMap.isNotEmpty) {
+      if (!drawingsMap.containsKey(myUid)) {
+        final myDisplayName = context.read<AuthProvider>().displayName;
+        final match = drawingsMap.entries.firstWhere(
+          (e) => (e.value as Map)['displayName'] == myDisplayName,
+          orElse: () => const MapEntry('', {}),
+        );
+        if (match.key.isNotEmpty) {
+          myUid = match.key;
+        } else {
+          // If still not matched, pick first entry as myUid if there's only 1 or match socket room
+          final socketProvider = context.read<SocketProvider>();
+          final roomPlayers = socketProvider.roomPlayers;
+          final mySocketPlayer = roomPlayers.firstWhere((p) => p['displayName'] == myDisplayName, orElse: () => {});
+          if (mySocketPlayer.containsKey('uid') && drawingsMap.containsKey(mySocketPlayer['uid'])) {
+            myUid = mySocketPlayer['uid'] as String;
+          } else if (drawingsMap.isNotEmpty) {
+            myUid = drawingsMap.keys.first;
+          }
+        }
+      }
+    }
 
     Map<String, dynamic>? opponentStats;
     String winnerText = '';
     Color winnerColor = primaryColor;
     String opponentId = '';
 
-    if (_drawingsData != null) {
-      final drawingsMap = _drawingsData!['drawings'] as Map<String, dynamic>;
+    if (_drawingsData != null && drawingsMap.isNotEmpty) {
       final opponentIdVal = drawingsMap.keys.firstWhere((uid) => uid != myUid, orElse: () => '');
       opponentId = opponentIdVal;
       if (opponentId.isNotEmpty) {
@@ -439,7 +462,9 @@ class _ResultsScreenState extends State<ResultsScreen>
                               Expanded(
                                 child: _buildFeedbackCard(
                                   title: 'Strengths',
-                                  items: _strengths.isNotEmpty ? _strengths : ['Good basic outlines', 'Recognizable form'],
+                                  items: _strengths.isNotEmpty
+                                      ? _strengths
+                                      : (_myScore < 40 || _grade == 'F' ? ['No clear shapes recognized'] : ['Basic form attempted']),
                                   icon: LucideIcons.checkCircle,
                                   iconColor: AppColors.mint,
                                   cardBg: cardBg,
@@ -453,7 +478,9 @@ class _ResultsScreenState extends State<ResultsScreen>
                               Expanded(
                                 child: _buildFeedbackCard(
                                   title: 'Improvement',
-                                  items: _weaknesses.isNotEmpty ? _weaknesses : ['Add secondary details', 'Outline consistency'],
+                                  items: _weaknesses.isNotEmpty
+                                      ? _weaknesses
+                                      : (_myScore < 40 || _grade == 'F' ? ['Draw clear defining outlines', 'Follow the prompt subject'] : ['Add secondary details', 'Outline consistency']),
                                   icon: LucideIcons.alertTriangle,
                                   iconColor: AppColors.sunny,
                                   cardBg: cardBg,

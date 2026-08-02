@@ -228,14 +228,30 @@ export async function submitDrawing(sessionId, userId, drawingData) {
       throw Object.assign(new Error('Game is not in drawing or evaluating phase'), { status: 400 });
     }
 
-    const player = session.players.find(p => p.userId === userId);
+    let player = session.players.find(p => p.userId === userId);
     if (player) {
       player.status = 'submitted';
+      // Only set displayName if player didn't have one set from room creation
+      if (!player.displayName || player.displayName === 'Player') {
+        player.displayName = drawingData.displayName || userId;
+      }
+    } else {
+      // If player wasn't in players array, register them now
+      player = {
+        userId,
+        displayName: drawingData.displayName || userId,
+        photoUrl: null,
+        status: 'submitted',
+        joinedAt: new Date().toISOString(),
+      };
+      session.players.push(player);
     }
 
     const submission = {
+      userId,
+      displayName: player.displayName,
       drawingUrl: drawingData.drawingUrl || null,
-      drawingBuffer: drawingData.drawingBuffer || null, // For AI evaluation
+      drawingBuffer: drawingData.drawingBuffer || null, // Stored separately per userId
       score: null,
       aiLabels: [],
       submittedAt: new Date().toISOString(),
@@ -250,11 +266,14 @@ export async function submitDrawing(sessionId, userId, drawingData) {
       [`submissions.${userId}`]: submission,
     });
 
-    // Check if all players have submitted
+    // Check if all active players have submitted
     const activePlayers = session.players.filter(p => p.status !== 'spectator');
     const allSubmitted = activePlayers.length > 0 && activePlayers.every(p => p.status === 'submitted');
 
-    logger.info(`[LOG] Player submitted drawing: ${player?.displayName || userId} for game ${sessionId}`);
+    const bufSize = drawingData.drawingBuffer ? (Buffer.isBuffer(drawingData.drawingBuffer) ? drawingData.drawingBuffer.length : Object.keys(drawingData.drawingBuffer).length) : 0;
+    logger.info(`[CANVAS SAVE] Saved canvas buffer for user ${userId} (${player.displayName}), size: ${bufSize} bytes in game ${sessionId}`);
+    logger.info(`[LOG] Player submitted drawing: ${player.displayName} for game ${sessionId}`);
+
     return { session: { ...session }, allSubmitted };
   } catch (error) {
     if (!error.status) error.status = 500;

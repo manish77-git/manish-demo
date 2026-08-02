@@ -211,6 +211,52 @@ async function runTest() {
     }
     console.log('------------------------\n');
 
+    // ─── VERIFICATION ASSERTIONS ──────────────────────────────
+    log('VERIFY', 'Running strict validation checks...');
+
+    // Assertion 1: Both player drawings exist in drawingsMap
+    const p1Data = results.drawings['p1_test_uid'];
+    const p2Data = results.drawings['p2_test_uid'];
+    if (!p1Data || !p2Data) {
+      throw new Error('Verification failed: drawingsMap missing player entries');
+    }
+    log('VERIFY', '✅ Both player entries found in drawingsMap');
+
+    // Assertion 2: Display names are preserved (not generic "Player")
+    if (p1Data.displayName !== 'Player One' || p2Data.displayName !== 'Player Two') {
+      throw new Error(`Verification failed: Display names incorrect. p1="${p1Data.displayName}", p2="${p2Data.displayName}"`);
+    }
+    log('VERIFY', '✅ Display names correctly preserved ("Player One", "Player Two")');
+
+    // Assertion 3: Separate base64 canvas images embedded for both players
+    if (!p1Data.imageData || !p1Data.imageData.startsWith('data:image/png;base64,')) {
+      throw new Error('Verification failed: Player 1 canvas imageData missing or invalid base64');
+    }
+    if (!p2Data.imageData || !p2Data.imageData.startsWith('data:image/png;base64,')) {
+      throw new Error('Verification failed: Player 2 canvas imageData missing or invalid base64');
+    }
+    log('VERIFY', '✅ Separate base64 canvas images present for both players');
+
+    // Assertion 4: Winner calculation accuracy
+    let expectedWinner = 'tie';
+    if (p1Data.score > p2Data.score) expectedWinner = 'p1_test_uid';
+    else if (p2Data.score > p1Data.score) expectedWinner = 'p2_test_uid';
+
+    if (results.winnerId !== expectedWinner) {
+      throw new Error(`Verification failed: Winner calculation mismatch. Expected "${expectedWinner}", got "${results.winnerId}"`);
+    }
+    log('VERIFY', `✅ Winner calculation verified: "${results.winnerId}" is the highest scorer`);
+
+    // Assertion 5: Score-consistent feedback (no positive strengths on low/zero scores)
+    for (const [uid, pData] of Object.entries(results.drawings)) {
+      if (pData.score < 40 || pData.grade === 'F') {
+        if (pData.strengths && pData.strengths.length > 0) {
+          throw new Error(`Verification failed: Low score player ${uid} has contradictory positive strengths: ${JSON.stringify(pData.strengths)}`);
+        }
+      }
+    }
+    log('VERIFY', '✅ Feedback consistency verified: no positive strengths for low/zero scores');
+
     // Step 8: Test Rematch Flow
     log('REMATCH', 'Player 1 emitting room:rematch...');
     const rematchPromise = new Promise((resolve, reject) => {

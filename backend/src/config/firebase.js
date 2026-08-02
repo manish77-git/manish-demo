@@ -298,10 +298,11 @@ class MockAuth {
   async verifyIdToken(token) {
     if (token && token.startsWith('mock_token_')) {
       const uid = token.replace('mock_token_', '');
+      const name = token.includes('p1') ? 'Player One' : (token.includes('p2') ? 'Player Two' : `User ${uid}`);
       return {
         uid: uid,
         email: `${uid}@example.com`,
-        name: `User ${uid}`,
+        name,
       };
     }
     return {

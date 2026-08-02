@@ -83,11 +83,18 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
 
   const grade = getGrade(score);
 
+  // Sanitize feedback to prevent contradictory positive strengths on low/zero scores
+  const isLowScore = score < 40 || grade === 'F';
+  const strengths = isLowScore ? [] : (aiResult.strengths || []);
+  const weaknesses = (aiResult.weaknesses && aiResult.weaknesses.length > 0)
+    ? aiResult.weaknesses
+    : (isLowScore ? ['Unrecognizable subject shape', 'Missing essential defining outlines'] : ['Refine stroke details']);
+
   // Build explanation array for the UI
   const explanation = [
     aiResult.reasoning,
     ...(aiResult.missingElements || []).map(element => `Missing: ${element}`),
-    ...(aiResult.strengths || []).map(strength => `Strength: ${strength}`),
+    ...strengths.map(strength => `Strength: ${strength}`),
   ];
 
   logger.info(`[EVAL COMPLETE] prompt="${prompt}", score=${score}, grade=${grade}, aiRawScore=${aiResult.similarityScore}`);
@@ -105,8 +112,8 @@ export async function evaluateDrawing(imageBuffer, prompt, options = {}) {
     strokeQualityScore: aiResult.strokeQualityScore,
     reasoning: aiResult.reasoning,
     missingElements: aiResult.missingElements,
-    strengths: aiResult.strengths,
-    weaknesses: aiResult.weaknesses,
+    strengths,
+    weaknesses,
     breakdown: {
       ...breakdown,
       aiRawScore: aiResult.similarityScore,
