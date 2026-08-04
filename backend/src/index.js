@@ -272,13 +272,28 @@ async function bootstrap() {
         logger.info(`[MATCH START] Drawing phase started for room ${actualRoomCode}, duration=${activeSettings.duration}s`);
 
         // Server-side timer safeguard: auto-trigger evaluation when drawing time expires (+5s grace period)
-        // Store the timer reference so it can be cancelled if all players submit early
+        // The atomic transitionToEvaluating() inside triggerMatchEvaluation prevents double-evaluation
         const autoEvalBufferMs = (activeSettings.duration + 5) * 1000;
-        const autoEvalTimer = setTimeout(() => {
+        const autoEvalTimer = setTimeout(async () => {
           logger.info(`[TIMER] Auto-eval timer expired for game ${actualRoomCode}, checking if evaluation needed...`);
-          triggerMatchEvaluation(actualRoomCode, io).catch(err => {
-            logger.error(`[TIMER] Error in auto-evaluation for game ${actualRoomCode}:`, err.message);
-          });
+          
+          // Verify game is still in drawing state before triggering
+          try {
+            const currentSession = await getFirestore().collection('gameSessions').doc(actualRoomCode).get();
+            if (currentSession.exists) {
+              const sessionData = currentSession.data();
+              if (sessionData.status === 'drawing') {
+                logger.info(`[TIMER] Game ${actualRoomCode} still in drawing state at timer expiry — triggering evaluation`);
+                triggerMatchEvaluation(actualRoomCode, io).catch(err => {
+                  logger.error(`[TIMER] Error in auto-evaluation for game ${actualRoomCode}:`, err.message);
+                });
+              } else {
+                logger.info(`[TIMER] Game ${actualRoomCode} already in '${sessionData.status}' state — skipping auto-eval`);
+              }
+            }
+          } catch (err) {
+            logger.error(`[TIMER] Error checking game state for auto-eval: ${err.message}`);
+          }
         }, autoEvalBufferMs);
 
         // Store timer reference on the room for cancellation when all submit early

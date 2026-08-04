@@ -27,6 +27,7 @@ class SocketProvider extends ChangeNotifier {
   void Function(String prompt, int duration, int currentRound, int totalRounds)? onMatchStarted;
   void Function(String userId, String displayName)? onPlayerFinished;
   void Function(Map<String, dynamic> resultsData)? onGameResults;
+  void Function(String gameId, String error)? onEvaluationFailed;
   void Function(String status, String gameId)? onGameStatus;
   void Function(String roomCode)? onRematchReady;
   void Function(Map<String, dynamic> history)? onDrawingHistory;
@@ -173,6 +174,15 @@ class SocketProvider extends ChangeNotifier {
       if (onGameResults != null) {
         final map = Map<String, dynamic>.from(data as Map);
         onGameResults!(map);
+      }
+    });
+
+    _socket!.on('game:evaluation_failed', (data) {
+      debugPrint('[SocketProvider] AI evaluation failed: $data');
+      if (onEvaluationFailed != null) {
+        final gameId = data['gameId'] as String? ?? '';
+        final error = data['error'] as String? ?? 'AI evaluation failed.';
+        onEvaluationFailed!(gameId, error);
       }
     });
 

@@ -335,69 +335,10 @@ export async function evaluateWithGemini(imageBuffer, drawingPrompt) {
     logger.warn('[AI EVAL] No GROQ_API_KEY configured. No secondary provider available.');
   }
 
-  // ─── Phase 3: Intelligent Visual Feature Evaluation Fallback ──
-  logger.warn(`[AI EVAL] All external AI APIs failed/exhausted for prompt "${drawingPrompt}". Running Visual Feature Evaluation engine...`);
-  
-  try {
-    const { extractImageFeatures } = await import('../utils/imageProcessor.js');
-    const features = await extractImageFeatures(imageBuffer);
-
-    if (features.isBlank) {
-      return {
-        similarityScore: 0,
-        objectRecognitionScore: 0,
-        requiredFeaturesScore: 0,
-        compositionScore: 0,
-        creativityScore: 0,
-        strokeQualityScore: 0,
-        reasoning: `Blank canvas submitted for prompt "${drawingPrompt}". No drawing strokes detected.`,
-        labels: [],
-        accuracy: 95,
-        missingElements: ['All required drawing elements'],
-        strengths: [],
-        weaknesses: ['Nothing was drawn on the canvas'],
-        grade: 'F',
-      };
-    }
-
-    const coverageScore = Math.min(100, Math.round(features.coverage * 150));
-    const edgeScore = Math.min(100, Math.round(features.edgeDensity * 200));
-
-    const objRec = Math.max(10, Math.min(95, Math.round((coverageScore * 0.6) + (edgeScore * 0.4))));
-    const reqFeat = Math.max(10, Math.min(95, Math.round(edgeScore)));
-    const comp = Math.max(20, Math.min(90, Math.round(coverageScore * 0.8 + 20)));
-    const creat = Math.max(15, Math.min(85, Math.round((edgeScore + coverageScore) / 2)));
-    const strokeQ = Math.max(15, Math.min(90, Math.round(edgeScore * 0.9 + 10)));
-
-    const compositeScore = Math.round(
-      (objRec * 0.40) + (reqFeat * 0.25) + (comp * 0.15) + (creat * 0.10) + (strokeQ * 0.10)
-    );
-
-    const isLow = compositeScore < 40;
-    const grade = isLow ? 'F' : (compositeScore >= 80 ? 'A' : (compositeScore >= 70 ? 'B' : (compositeScore >= 60 ? 'C' : 'D')));
-
-    logger.info(`[AI EVAL SUCCESS] Visual Feature Engine: prompt="${drawingPrompt}" score=${compositeScore} grade=${grade}`);
-
-    return {
-      similarityScore: compositeScore,
-      objectRecognitionScore: objRec,
-      requiredFeaturesScore: reqFeat,
-      compositionScore: comp,
-      creativityScore: creat,
-      strokeQualityScore: strokeQ,
-      reasoning: `Evaluated drawing stroke geometry for prompt "${drawingPrompt}". Coverage: ${Math.round(features.coverage * 100)}%, Edge density: ${Math.round(features.edgeDensity * 100)}%.`,
-      labels: [drawingPrompt, 'sketch'],
-      accuracy: 85,
-      missingElements: isLow ? ['Clear defining outlines of ' + drawingPrompt] : ['Minor detail refinement'],
-      strengths: isLow ? [] : ['Good stroke distribution', 'Recognizable canvas placement'],
-      weaknesses: isLow ? ['Unrecognizable subject shape', 'Insufficient line detail'] : ['Refine outline precision'],
-      grade,
-    };
-  } catch (err) {
-    const errorMsg = `All AI evaluation providers failed for prompt "${drawingPrompt}". Last error: ${lastError?.message || err.message}`;
-    logger.error(`[AI EVAL FATAL] ${errorMsg}`);
-    throw new Error(errorMsg);
-  }
+  // ─── All AI providers failed — THROW, never fabricate scores ──
+  const errorMsg = `All AI evaluation providers failed for prompt "${drawingPrompt}". Last error: ${lastError?.message || 'Unknown'}`;
+  logger.error(`[AI EVAL FATAL] ${errorMsg}`);
+  throw new Error(errorMsg);
 }
 
 function gradeFromScore(score) {

@@ -22,6 +22,9 @@ export const uploadMiddleware = upload.single('drawing');
 
 /**
  * Triggers match evaluation, evaluates all drawings in parallel, saves scores, calculates winner, and emits results.
+ *
+ * On AI failure: sets status to 'evaluation_failed' and emits game:evaluation_failed so both clients show Retry.
+ * NEVER generates fake/random scores.
  */
 export async function triggerMatchEvaluation(gameId, io) {
   const canEvaluate = await gameService.transitionToEvaluating(gameId);
@@ -47,86 +50,128 @@ export async function triggerMatchEvaluation(gameId, io) {
     io.to(gameId).emit('game:status', { status: 'evaluating', gameId });
   }
 
-  const session = await gameService.getGameSession(gameId);
-  const submissions = session.submissions || {};
+  try {
+    const session = await gameService.getGameSession(gameId);
+    const submissions = session.submissions || {};
 
-  // Evaluate all drawings in parallel
-  const evalResults = await evaluateAllDrawings(
-    submissions,
-    session.prompt,
-    session.drawingTimeSeconds,
-    session.startedAt
-  );
+    // Get drawing buffers from in-memory store
+    const drawingBuffers = gameService.getAllDrawingBuffers(gameId);
 
-  const scores = {};
-  for (const [userId, evalData] of Object.entries(evalResults)) {
-    const player = session.players.find(p => p.userId === userId);
-    scores[userId] = {
-      ...evalData,
-      displayName: player?.displayName || 'Player',
-      photoUrl: player?.photoUrl || null,
-      prompt: session.prompt,
-    };
-  }
-
-  // Finalize game with scores in DB
-  await gameService.finalizeGame(gameId, scores);
-  logger.info(`[LOG] Scores saved to DB for game ${gameId}`);
-
-  // Build drawings map with base64 images for side-by-side comparison
-  const drawingsMap = {};
-  for (const [userId, scoreData] of Object.entries(scores)) {
-    const sub = submissions[userId];
-    let base64Img = null;
-    if (sub?.drawingBuffer) {
-      const buf = Buffer.isBuffer(sub.drawingBuffer)
-        ? sub.drawingBuffer
-        : (sub.drawingBuffer.type === 'Buffer' ? Buffer.from(sub.drawingBuffer.data) : Buffer.from(sub.drawingBuffer));
-      base64Img = `data:image/png;base64,${buf.toString('base64')}`;
+    // Verify all submitted players have drawing buffers
+    const playerIds = Object.keys(submissions);
+    for (const userId of playerIds) {
+      if (!drawingBuffers[userId]) {
+        logger.warn(`[EVAL TRIGGER] Missing drawing buffer for user ${userId} in game ${gameId}`);
+      }
     }
 
-    drawingsMap[userId] = {
-      userId,
-      displayName: scoreData.displayName || 'Player',
-      score: scoreData.score,
-      grade: scoreData.grade,
-      breakdown: scoreData.breakdown,
-      explanation: scoreData.explanation,
-      strengths: scoreData.strengths || [],
-      weaknesses: scoreData.weaknesses || [],
-      objectRecognitionScore: scoreData.objectRecognitionScore ?? 0,
-      requiredFeaturesScore: scoreData.requiredFeaturesScore ?? 0,
-      compositionScore: scoreData.compositionScore ?? 0,
-      creativityScore: scoreData.creativityScore ?? 0,
-      strokeQualityScore: scoreData.strokeQualityScore ?? 0,
-      imageData: base64Img,
-    };
+    // Build submissions with in-memory buffers for evaluation
+    const submissionsWithBuffers = {};
+    for (const [userId, submission] of Object.entries(submissions)) {
+      submissionsWithBuffers[userId] = {
+        ...submission,
+        drawingBuffer: drawingBuffers[userId] || null,
+      };
+    }
 
-    logger.info(`[PARSED SCORE] User ${userId} (${scoreData.displayName}): Score=${scoreData.score}, Grade=${scoreData.grade}, ObjRec=${scoreData.objectRecognitionScore}, ReqFeat=${scoreData.requiredFeaturesScore}, Comp=${scoreData.compositionScore}, Creat=${scoreData.creativityScore}, Stroke=${scoreData.strokeQualityScore}`);
+    // Evaluate all drawings in parallel — this throws if AI fails
+    const evalResults = await evaluateAllDrawings(
+      submissionsWithBuffers,
+      session.prompt,
+      session.drawingTimeSeconds,
+      session.startedAt
+    );
+
+    const scores = {};
+    for (const [userId, evalData] of Object.entries(evalResults)) {
+      const player = session.players.find(p => p.userId === userId);
+      scores[userId] = {
+        ...evalData,
+        displayName: player?.displayName || 'Player',
+        photoUrl: player?.photoUrl || null,
+        prompt: session.prompt,
+      };
+    }
+
+    // Finalize game with scores in DB
+    await gameService.finalizeGame(gameId, scores);
+    logger.info(`[LOG] Scores saved to DB for game ${gameId}`);
+
+    // Build drawings map with base64 images for side-by-side comparison
+    const drawingsMap = {};
+    for (const [userId, scoreData] of Object.entries(scores)) {
+      const buf = drawingBuffers[userId];
+      let base64Img = null;
+      if (buf && Buffer.isBuffer(buf)) {
+        base64Img = `data:image/png;base64,${buf.toString('base64')}`;
+      }
+
+      drawingsMap[userId] = {
+        userId,
+        displayName: scoreData.displayName || 'Player',
+        score: scoreData.score,
+        grade: scoreData.grade,
+        breakdown: scoreData.breakdown,
+        explanation: scoreData.explanation,
+        strengths: scoreData.strengths || [],
+        weaknesses: scoreData.weaknesses || [],
+        objectRecognitionScore: scoreData.objectRecognitionScore ?? 0,
+        requiredFeaturesScore: scoreData.requiredFeaturesScore ?? 0,
+        compositionScore: scoreData.compositionScore ?? 0,
+        creativityScore: scoreData.creativityScore ?? 0,
+        strokeQualityScore: scoreData.strokeQualityScore ?? 0,
+        imageData: base64Img,
+      };
+
+      logger.info(`[PARSED SCORE] User ${userId} (${scoreData.displayName}): Score=${scoreData.score}, Grade=${scoreData.grade}, ObjRec=${scoreData.objectRecognitionScore}, ReqFeat=${scoreData.requiredFeaturesScore}, Comp=${scoreData.compositionScore}, Creat=${scoreData.creativityScore}, Stroke=${scoreData.strokeQualityScore}`);
+    }
+
+    // Calculate winner accurately (highest score wins)
+    const rankings = rankPlayers(scores);
+    const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
+    const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
+    const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
+
+    // Build AI reasoning summary
+    const aiReason = sortedDrawings.map(d => `${d.displayName}: ${d.score}pts (${d.grade})`).join(' vs ');
+
+    const standingsLog = sortedDrawings.map(d => `${d.displayName} (${d.userId}): ${d.score}pts`).join(' vs ');
+    logger.info(`[WINNER CALC] Game ${gameId} Standings: ${standingsLog} | Declared Winner: ${winnerId}`);
+
+    // Emit results to all players immediately — IDENTICAL data on both devices
+    if (io) {
+      io.to(gameId).emit('game:results', {
+        gameId,
+        prompt: session.prompt,
+        rankings,
+        drawings: drawingsMap,
+        winnerId,
+        aiReason,
+      });
+      logger.info(`[LOG] Results emitted via socket for game ${gameId}`);
+    }
+
+    return { rankings, drawingsMap, winnerId };
+
+  } catch (err) {
+    // ─── AI Evaluation Failed — notify both clients ───────────
+    logger.error(`[EVAL TRIGGER] AI evaluation FAILED for game ${gameId}: ${err.message}`);
+
+    // Mark failure in Firestore
+    await gameService.markEvaluationFailed(gameId, err.message);
+
+    // Emit failure to all connected clients so they show Retry button
+    if (io) {
+      io.to(gameId).emit('game:evaluation_failed', {
+        gameId,
+        error: 'AI evaluation failed. Please tap Retry.',
+        details: err.message,
+      });
+      logger.info(`[LOG] game:evaluation_failed emitted for game ${gameId}`);
+    }
+
+    // Do NOT throw — the error has been handled and communicated
   }
-
-  // Calculate winner accurately (highest score wins)
-  const rankings = rankPlayers(scores);
-  const sortedDrawings = Object.values(drawingsMap).sort((a, b) => b.score - a.score);
-  const isTie = sortedDrawings.length >= 2 && sortedDrawings[0].score === sortedDrawings[1].score;
-  const winnerId = isTie ? 'tie' : (sortedDrawings[0]?.userId || null);
-
-  const standingsLog = sortedDrawings.map(d => `${d.displayName} (${d.userId}): ${d.score}pts`).join(' vs ');
-  logger.info(`[WINNER CALC] Game ${gameId} Standings: ${standingsLog} | Declared Winner: ${winnerId}`);
-
-  // Emit results to all players immediately
-  if (io) {
-    io.to(gameId).emit('game:results', {
-      gameId,
-      prompt: session.prompt,
-      rankings,
-      drawings: drawingsMap,
-      winnerId,
-    });
-    logger.info(`[LOG] Results screen opened / emitted via socket for game ${gameId}`);
-  }
-
-  return { rankings, drawingsMap, winnerId };
 }
 
 /**
@@ -161,7 +206,7 @@ export async function submitDrawing(req, res, next) {
 
     logger.info(`[IMAGE UPLOAD] Received canvas PNG upload from user ${req.user.uid} (${req.user.displayName}), size: ${req.file.buffer.length} bytes for game ${gameId}`);
 
-    // Record submission with user's displayName
+    // Record submission — buffer stored in memory, metadata in Firestore
     const { allSubmitted } = await gameService.submitDrawing(gameId, req.user.uid, {
       drawingBuffer: req.file.buffer,
       displayName: req.user.displayName,
@@ -182,8 +227,9 @@ export async function submitDrawing(req, res, next) {
     // If all players submitted, immediately trigger parallel evaluation
     if (allSubmitted) {
       logger.info(`[SUBMIT] All players submitted for game ${gameId}, starting AI evaluation...`);
+      // Non-blocking — evaluation runs in background, errors are handled inside
       triggerMatchEvaluation(gameId, io).catch(err => {
-        logger.error(`[SUBMIT] Error in match evaluation for game ${gameId}: ${err.message}`);
+        logger.error(`[SUBMIT] Unexpected error in triggerMatchEvaluation for game ${gameId}: ${err.message}`);
       });
     } else {
       logger.info(`[SUBMIT] Waiting for more submissions in game ${gameId}`);
@@ -196,6 +242,70 @@ export async function submitDrawing(req, res, next) {
         allSubmitted,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/drawings/retry-evaluation — Retry AI evaluation using already-stored drawing buffers.
+ * Does NOT require re-uploading drawings.
+ */
+export async function retryEvaluation(req, res, next) {
+  try {
+    const { gameId } = req.body;
+    if (!gameId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Game ID is required' },
+      });
+    }
+
+    logger.info(`[RETRY] Retry evaluation requested for game ${gameId} by user ${req.user.uid}`);
+
+    // Verify the game is in evaluation_failed state
+    const session = await gameService.getGameSession(gameId);
+    if (session.status !== 'evaluation_failed') {
+      return res.status(400).json({
+        success: false,
+        error: { message: `Game is in '${session.status}' state, not evaluation_failed` },
+      });
+    }
+
+    // Verify drawing buffers still exist in memory
+    const drawingBuffers = gameService.getAllDrawingBuffers(gameId);
+    const playerIds = Object.keys(session.submissions || {});
+    const missingBuffers = playerIds.filter(uid => !drawingBuffers[uid]);
+
+    if (missingBuffers.length > 0) {
+      logger.error(`[RETRY] Missing drawing buffers for users: ${missingBuffers.join(', ')} in game ${gameId}`);
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Drawing data expired. Both players need to redraw.' },
+      });
+    }
+
+    // Reset evaluation state for retry
+    const canRetry = await gameService.resetForRetryEvaluation(gameId);
+    if (!canRetry) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Cannot retry evaluation — game state has changed' },
+      });
+    }
+
+    // Respond immediately — evaluation runs in background
+    res.json({
+      success: true,
+      data: { message: 'Retry evaluation started' },
+    });
+
+    // Trigger evaluation in background with existing buffers
+    const io = req.app.get('io');
+    triggerMatchEvaluation(gameId, io).catch(err => {
+      logger.error(`[RETRY] Retry evaluation failed for game ${gameId}: ${err.message}`);
+    });
+
   } catch (error) {
     next(error);
   }
@@ -254,27 +364,18 @@ export async function getGameDrawings(req, res, next) {
 
 /**
  * GET /api/drawings/:gameId/image/:userId — Get raw drawing image as PNG stream.
+ * Reads from in-memory buffer store instead of Firestore.
  */
 export async function getGameDrawingImage(req, res, next) {
   try {
     const { gameId, userId } = req.params;
-    const session = await gameService.getGameSession(gameId);
 
-    const submission = session.submissions?.[userId];
-    if (!submission || !submission.drawingBuffer) {
+    const buffer = gameService.getDrawingBuffer(gameId, userId);
+    if (!buffer) {
       return res.status(404).json({
         success: false,
         error: { message: 'Drawing not found for this user' },
       });
-    }
-
-    let buffer;
-    if (Buffer.isBuffer(submission.drawingBuffer)) {
-      buffer = submission.drawingBuffer;
-    } else if (submission.drawingBuffer && submission.drawingBuffer.type === 'Buffer') {
-      buffer = Buffer.from(submission.drawingBuffer.data);
-    } else {
-      buffer = Buffer.from(submission.drawingBuffer);
     }
 
     res.type('image/png').send(buffer);

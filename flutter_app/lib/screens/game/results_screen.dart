@@ -37,7 +37,6 @@ class _ResultsScreenState extends State<ResultsScreen>
 
   int _myScore = 0;
   String _prompt = '';
-  String _grade = 'F';
 
   bool _isMultiplayer = false;
   String? _gameId;
@@ -86,7 +85,6 @@ class _ResultsScreenState extends State<ResultsScreen>
 
       _myScore = args['score'] as int? ?? 0;
       _prompt = args['prompt'] as String? ?? '';
-      _grade = args['grade'] as String? ?? 'F';
 
       _isMultiplayer = args['isMultiplayer'] == true;
       _gameId = args['gameId'] as String?;
@@ -186,33 +184,18 @@ class _ResultsScreenState extends State<ResultsScreen>
     final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
     final drawingsMap = _drawingsData?['drawings'] as Map<String, dynamic>? ?? {};
-    String myUid = context.read<AuthProvider>().uid;
+    // Always use AuthProvider UID as the canonical identity — never fall back to drawingsMap.keys.first
+    final String myUid = context.read<AuthProvider>().uid;
+    final String myName = context.read<AuthProvider>().displayName;
 
-    if (_isMultiplayer && drawingsMap.isNotEmpty) {
-      if (!drawingsMap.containsKey(myUid)) {
-        final myDisplayName = context.read<AuthProvider>().displayName;
-        final match = drawingsMap.entries.firstWhere(
-          (e) => (e.value as Map)['displayName'] == myDisplayName,
-          orElse: () => const MapEntry('', {}),
-        );
-        if (match.key.isNotEmpty) {
-          myUid = match.key;
-        } else {
-          final socketProvider = context.read<SocketProvider>();
-          final roomPlayers = socketProvider.roomPlayers;
-          final mySocketPlayer = roomPlayers.firstWhere((p) => p['displayName'] == myDisplayName, orElse: () => {});
-          if (mySocketPlayer.containsKey('uid') && drawingsMap.containsKey(mySocketPlayer['uid'])) {
-            myUid = mySocketPlayer['uid'] as String;
-          } else if (drawingsMap.isNotEmpty) {
-            myUid = drawingsMap.keys.first;
-          }
-        }
-      }
+    if (_isMultiplayer && drawingsMap.isNotEmpty && !drawingsMap.containsKey(myUid)) {
+      debugPrint('[ResultsScreen] WARNING: My UID ($myUid) not found in drawingsMap keys: ${drawingsMap.keys.toList()}');
+      // Do NOT override myUid — show "Data unavailable" rather than wrong player's data
     }
 
     Map<String, dynamic>? myData = drawingsMap[myUid] as Map<String, dynamic>?;
     final myScoreVal = (myData?['score'] as num? ?? _myScore).toInt();
-    final myName = myData?['displayName'] as String? ?? context.read<AuthProvider>().displayName;
+    final myDisplayName = myData?['displayName'] as String? ?? myName;
 
     Map<String, dynamic>? opponentData;
     String opponentUid = '';
@@ -225,10 +208,22 @@ class _ResultsScreenState extends State<ResultsScreen>
     final opponentScoreVal = (opponentData?['score'] as num? ?? 0).toInt();
     final opponentName = opponentData?['displayName'] as String? ?? 'Opponent';
 
-    // Winner calculations
-    final isTie = _isMultiplayer && (myScoreVal == opponentScoreVal);
-    final isIWon = _isMultiplayer && (myScoreVal > opponentScoreVal);
-    final winnerName = isTie ? "It's a Draw!" : (isIWon ? myName : opponentName);
+    // Winner calculation — use winnerId from server if available (single source of truth)
+    final serverWinnerId = _drawingsData?['winnerId'] as String?;
+    final bool isTie;
+    final bool isIWon;
+    final String winnerName;
+
+    if (serverWinnerId != null && serverWinnerId.isNotEmpty) {
+      isTie = serverWinnerId == 'tie';
+      isIWon = serverWinnerId == myUid;
+      winnerName = isTie ? "It's a Draw!" : (isIWon ? myDisplayName : opponentName);
+    } else {
+      // Fallback to local score comparison
+      isTie = _isMultiplayer && (myScoreVal == opponentScoreVal);
+      isIWon = _isMultiplayer && (myScoreVal > opponentScoreVal);
+      winnerName = isTie ? "It's a Draw!" : (isIWon ? myDisplayName : opponentName);
+    }
 
     return Scaffold(
       body: ConfettiOverlay(

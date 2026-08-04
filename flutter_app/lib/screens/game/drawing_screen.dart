@@ -270,6 +270,21 @@ class _DrawingScreenState extends State<DrawingScreen> {
           }
         };
 
+        // Listen for AI evaluation failure — show Retry button
+        socketProvider.onEvaluationFailed = (gameId, error) {
+          debugPrint('[LOG] AI evaluation FAILED for game $gameId: $error');
+          _evalTimeoutTimer?.cancel();
+          _evaluatingMsgTimer?.cancel();
+
+          if (mounted) {
+            setState(() {
+              _isEvaluating = false;
+              _waitingForOpponent = false;
+            });
+            _showEvaluationErrorDialog();
+          }
+        };
+
         socketProvider.onGameStatus = (status, gameId) {
           debugPrint('[LOG] Game status changed: $status for game $gameId');
         };
@@ -342,6 +357,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       socketProvider.onMatchStarted = null;
       socketProvider.onPlayerFinished = null;
       socketProvider.onGameResults = null;
+      socketProvider.onEvaluationFailed = null;
       socketProvider.onGameStatus = null;
     } catch (_) {}
     super.dispose();
@@ -480,19 +496,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
           _waitingForOpponent = true;
         });
 
-        // Set up 35-second client evaluation timeout safeguard to avoid hanging overlay
+        // No client-side timeout — the server handles AI timeouts and retries.
+        // The client waits for either game:results or game:evaluation_failed socket events.
         _evalTimeoutTimer?.cancel();
-        _evalTimeoutTimer = Timer(const Duration(seconds: 35), () {
-          if (mounted && (_isEvaluating || _waitingForOpponent)) {
-            debugPrint('[LOG] AI response timeout (35s) reached on client for room $roomCode');
-            setState(() {
-              _isEvaluating = false;
-              _waitingForOpponent = false;
-            });
-            _evaluatingMsgTimer?.cancel();
-            _showEvaluationErrorDialog();
-          }
-        });
 
         // Submit drawing PNG to backend
         await service.submitDrawing(
@@ -556,8 +562,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
+      builder: (dialogContext) {
+        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
         return AlertDialog(
           backgroundColor: isDark ? AppColors.cardDark : AppColors.cardLight,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLarge)),
@@ -569,18 +575,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
             ],
           ),
           content: const Text(
-            'AI evaluation failed. Please try again.',
+            'AI evaluation failed. Please tap Retry.',
             style: TextStyle(fontSize: 14, height: 1.4),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton.icon(
               onPressed: () {
-                Navigator.pop(context);
-                _handleSubmit();
+                Navigator.pop(dialogContext);
+                _handleRetryEvaluation();
               },
               icon: const Icon(LucideIcons.rotateCw, size: 16, color: Colors.white),
               label: const Text('Retry Evaluation', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
@@ -593,6 +599,55 @@ class _DrawingScreenState extends State<DrawingScreen> {
         );
       },
     );
+  }
+
+  /// Retry AI evaluation using already-stored drawings on the server.
+  /// Does NOT re-upload the drawing.
+  Future<void> _handleRetryEvaluation() async {
+    final socketProvider = context.read<SocketProvider>();
+    final auth = context.read<AuthProvider>();
+    final roomCode = socketProvider.roomCode;
+
+    if (roomCode == null || roomCode.isEmpty) {
+      debugPrint('[DrawingScreen] Cannot retry — no room code');
+      return;
+    }
+
+    debugPrint('[DrawingScreen] Retrying evaluation for game $roomCode');
+
+    setState(() {
+      _isEvaluating = true;
+      _waitingForOpponent = true;
+      _evaluatingMsgIndex = 0;
+    });
+
+    _evaluatingMsgTimer = Timer.periodic(const Duration(seconds: 2), (t) {
+      if (mounted && _isEvaluating) {
+        setState(() {
+          _evaluatingMsgIndex = (_evaluatingMsgIndex + 1) % _evaluatingMessages.length;
+        });
+      } else {
+        t.cancel();
+      }
+    });
+
+    try {
+      final service = DrawingService(
+        baseUrl: ApiConfig.serverUrl,
+        getToken: () => auth.idToken,
+      );
+      await service.retryEvaluation(gameId: roomCode);
+      debugPrint('[DrawingScreen] Retry request sent — waiting for game:results or game:evaluation_failed');
+    } catch (e) {
+      debugPrint('[DrawingScreen] Retry request failed: $e');
+      if (mounted) {
+        setState(() {
+          _isEvaluating = false;
+          _waitingForOpponent = false;
+        });
+        _showEvaluationErrorDialog();
+      }
+    }
   }
 
   @override

@@ -7,8 +7,73 @@ import env from '../config/env.js';
 
 /**
  * Game session service — manages game lifecycle.
- * States: waiting → drawing → evaluating → results
+ * States: waiting → drawing → evaluating → evaluation_failed | completed
+ *
+ * IMPORTANT: Drawing buffers are stored in-memory (not Firestore) to avoid
+ * Buffer serialization corruption. Only metadata is persisted to Firestore.
  */
+
+// ─── In-Memory Drawing Buffer Store ──────────────────────────
+// Key: `${gameId}:${userId}` → Buffer
+const drawingBufferStore = new Map();
+
+/**
+ * Store a drawing buffer in memory for later AI evaluation.
+ */
+export function storeDrawingBuffer(gameId, userId, buffer) {
+  const key = `${gameId}:${userId}`;
+  drawingBufferStore.set(key, buffer);
+  logger.info(`[BUFFER STORE] Stored drawing buffer for ${key}, size: ${buffer.length} bytes`);
+}
+
+/**
+ * Retrieve a drawing buffer from memory.
+ */
+export function getDrawingBuffer(gameId, userId) {
+  const key = `${gameId}:${userId}`;
+  const buf = drawingBufferStore.get(key);
+  if (buf) {
+    logger.info(`[BUFFER STORE] Retrieved drawing buffer for ${key}, size: ${buf.length} bytes`);
+  } else {
+    logger.warn(`[BUFFER STORE] No drawing buffer found for ${key}`);
+  }
+  return buf || null;
+}
+
+/**
+ * Get all drawing buffers for a game session.
+ */
+export function getAllDrawingBuffers(gameId) {
+  const buffers = {};
+  for (const [key, buf] of drawingBufferStore.entries()) {
+    if (key.startsWith(`${gameId}:`)) {
+      const userId = key.split(':').slice(1).join(':');
+      buffers[userId] = buf;
+    }
+  }
+  return buffers;
+}
+
+/**
+ * Clean up drawing buffers for a game session (call after results are sent).
+ * Uses a delay to ensure results screen can still fetch images.
+ */
+export function scheduleBufferCleanup(gameId, delayMs = 300000) {
+  setTimeout(() => {
+    let cleaned = 0;
+    for (const key of drawingBufferStore.keys()) {
+      if (key.startsWith(`${gameId}:`)) {
+        drawingBufferStore.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      logger.info(`[BUFFER STORE] Cleaned up ${cleaned} drawing buffer(s) for game ${gameId}`);
+    }
+  }, delayMs);
+}
+
+// ─── Game Session CRUD ───────────────────────────────────────
 
 /**
  * Create a new game session.
@@ -38,6 +103,7 @@ export async function createGameSession(hostUser, options = {}) {
     startedAt: null,
     endedAt: null,
     submissions: {},
+    evaluationError: null,
   };
 
   try {
@@ -168,6 +234,7 @@ export async function startGame(sessionId, userId) {
       promptDifficulty: difficulty,
       startedAt: new Date().toISOString(),
       players: session.players,
+      evaluationError: null,
     };
 
     await sessionRef.update(updates);
@@ -181,28 +248,41 @@ export async function startGame(sessionId, userId) {
 }
 
 /**
- * Atomically transition game session status to 'evaluating' to prevent duplicate evaluations.
+ * Atomically transition game session status to 'evaluating' using a Firestore transaction
+ * to prevent duplicate evaluations (race condition between auto-eval timer and submission trigger).
+ *
+ * Returns true if THIS caller won the transition, false if another caller already did.
  */
 export async function transitionToEvaluating(sessionId) {
   try {
     const db = getFirestore();
     const sessionRef = db.collection('gameSessions').doc(sessionId);
-    const sessionDoc = await sessionRef.get();
 
-    if (!sessionDoc.exists) return false;
+    const transitioned = await db.runTransaction(async (transaction) => {
+      const sessionDoc = await transaction.get(sessionRef);
 
-    const session = sessionDoc.data();
-    if (session.status === 'evaluating' || session.status === 'completed' || session.status === 'results') {
-      return false; // Already evaluating or finished
-    }
+      if (!sessionDoc.exists) return false;
 
-    await sessionRef.update({
-      status: 'evaluating',
-      evaluatingStartedAt: new Date().toISOString(),
+      const session = sessionDoc.data();
+      // Only transition from 'drawing' status — anything else means someone already did it
+      if (session.status !== 'drawing') {
+        logger.info(`[TRANSITION] Game ${sessionId} already in status '${session.status}', skipping transition`);
+        return false;
+      }
+
+      transaction.update(sessionRef, {
+        status: 'evaluating',
+        evaluatingStartedAt: new Date().toISOString(),
+        evaluationError: null,
+      });
+
+      return true;
     });
 
-    logger.info(`[LOG] Match state changed: drawing -> evaluating for game ${sessionId}`);
-    return true;
+    if (transitioned) {
+      logger.info(`[LOG] Match state changed: drawing -> evaluating for game ${sessionId} (atomic transaction)`);
+    }
+    return transitioned;
   } catch (error) {
     logger.error(`Failed to transition game ${sessionId} to evaluating:`, error);
     return false;
@@ -210,7 +290,63 @@ export async function transitionToEvaluating(sessionId) {
 }
 
 /**
+ * Mark evaluation as failed in Firestore so both clients can detect it.
+ */
+export async function markEvaluationFailed(sessionId, errorMessage) {
+  try {
+    const db = getFirestore();
+    const sessionRef = db.collection('gameSessions').doc(sessionId);
+    await sessionRef.update({
+      status: 'evaluation_failed',
+      evaluationError: errorMessage,
+      evaluationFailedAt: new Date().toISOString(),
+    });
+    logger.info(`[EVAL FAILED] Game ${sessionId} marked as evaluation_failed: ${errorMessage}`);
+  } catch (error) {
+    logger.error(`Failed to mark evaluation as failed for game ${sessionId}:`, error);
+  }
+}
+
+/**
+ * Reset evaluation state so a retry can proceed (transition from evaluation_failed back to evaluating).
+ */
+export async function resetForRetryEvaluation(sessionId) {
+  try {
+    const db = getFirestore();
+    const sessionRef = db.collection('gameSessions').doc(sessionId);
+
+    const transitioned = await db.runTransaction(async (transaction) => {
+      const sessionDoc = await transaction.get(sessionRef);
+      if (!sessionDoc.exists) return false;
+
+      const session = sessionDoc.data();
+      if (session.status !== 'evaluation_failed') {
+        logger.info(`[RETRY] Game ${sessionId} status is '${session.status}', not evaluation_failed — skipping retry`);
+        return false;
+      }
+
+      transaction.update(sessionRef, {
+        status: 'evaluating',
+        evaluatingStartedAt: new Date().toISOString(),
+        evaluationError: null,
+      });
+
+      return true;
+    });
+
+    if (transitioned) {
+      logger.info(`[RETRY] Game ${sessionId} reset from evaluation_failed -> evaluating for retry`);
+    }
+    return transitioned;
+  } catch (error) {
+    logger.error(`Failed to reset evaluation for retry in game ${sessionId}:`, error);
+    return false;
+  }
+}
+
+/**
  * Record a player's drawing submission.
+ * Stores the drawing buffer in memory (NOT Firestore) and metadata in Firestore.
  */
 export async function submitDrawing(sessionId, userId, drawingData) {
   try {
@@ -247,11 +383,21 @@ export async function submitDrawing(sessionId, userId, drawingData) {
       session.players.push(player);
     }
 
+    // Store drawing buffer in memory (NOT in Firestore)
+    if (drawingData.drawingBuffer) {
+      const buf = Buffer.isBuffer(drawingData.drawingBuffer)
+        ? drawingData.drawingBuffer
+        : Buffer.from(drawingData.drawingBuffer);
+      storeDrawingBuffer(sessionId, userId, buf);
+      logger.info(`[CANVAS SAVE] Stored canvas buffer in memory for user ${userId} (${player.displayName}), size: ${buf.length} bytes in game ${sessionId}`);
+    }
+
+    // Only store metadata in Firestore (no raw buffers)
     const submission = {
       userId,
       displayName: player.displayName,
+      hasDrawing: true,
       drawingUrl: drawingData.drawingUrl || null,
-      drawingBuffer: drawingData.drawingBuffer || null, // Stored separately per userId
       score: null,
       aiLabels: [],
       submittedAt: new Date().toISOString(),
@@ -270,9 +416,7 @@ export async function submitDrawing(sessionId, userId, drawingData) {
     const activePlayers = session.players.filter(p => p.status !== 'spectator');
     const allSubmitted = activePlayers.length > 0 && activePlayers.every(p => p.status === 'submitted');
 
-    const bufSize = drawingData.drawingBuffer ? (Buffer.isBuffer(drawingData.drawingBuffer) ? drawingData.drawingBuffer.length : Object.keys(drawingData.drawingBuffer).length) : 0;
-    logger.info(`[CANVAS SAVE] Saved canvas buffer for user ${userId} (${player.displayName}), size: ${bufSize} bytes in game ${sessionId}`);
-    logger.info(`[LOG] Player submitted drawing: ${player.displayName} for game ${sessionId}`);
+    logger.info(`[LOG] Player submitted drawing: ${player.displayName} for game ${sessionId} (allSubmitted=${allSubmitted})`);
 
     return { session: { ...session }, allSubmitted };
   } catch (error) {
@@ -282,7 +426,7 @@ export async function submitDrawing(sessionId, userId, drawingData) {
 }
 
 /**
- * Update scores after AI evaluation and move to results/completed state.
+ * Update scores after AI evaluation and move to completed state.
  */
 export async function finalizeGame(sessionId, scores) {
   try {
@@ -292,6 +436,7 @@ export async function finalizeGame(sessionId, scores) {
     const updates = {
       status: 'completed',
       endedAt: new Date().toISOString(),
+      evaluationError: null,
     };
 
     // Update each player's score
@@ -302,6 +447,9 @@ export async function finalizeGame(sessionId, scores) {
     }
 
     await sessionRef.update(updates);
+
+    // Schedule cleanup of in-memory buffers (5 min delay for image fetching)
+    scheduleBufferCleanup(sessionId, 300000);
 
     // Update leaderboard
     await updateLeaderboard(scores);

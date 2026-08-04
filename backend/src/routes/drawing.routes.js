@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { submitDrawing, uploadMiddleware, getGameDrawings, evaluateSoloDrawing, analyzeDrawingLive, getGameDrawingImage } from '../controllers/drawing.controller.js';
+import { submitDrawing, uploadMiddleware, getGameDrawings, evaluateSoloDrawing, analyzeDrawingLive, getGameDrawingImage, retryEvaluation } from '../controllers/drawing.controller.js';
 import { getAiStatus } from '../services/geminiEvaluator.service.js';
 
 import { getRandomPrompt } from '../models/prompts.js';
@@ -15,6 +15,7 @@ router.get('/ai-status', (req, res) => {
 });
 
 router.post('/submit', authMiddleware, uploadMiddleware, submitDrawing);
+router.post('/retry-evaluation', authMiddleware, retryEvaluation);
 router.post('/evaluate-solo', uploadMiddleware, evaluateSoloDrawing);
 router.post('/analyze', uploadMiddleware, analyzeDrawingLive);
 router.get('/random-prompt', (req, res) => {

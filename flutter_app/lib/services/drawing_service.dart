@@ -20,12 +20,14 @@ class DrawingService {
     return data['data'] as Map<String, dynamic>;
   }
 
-  /// Submit a drawing for AI evaluation.
+  /// Submit a drawing for multiplayer AI evaluation.
+  /// Returns immediately after upload. Results come via socket events.
   Future<DrawingResult> submitDrawing({
     required String gameId,
     required Uint8List drawingBytes,
   }) async {
     try {
+      debugPrint('[DrawingService] Submitting drawing for game $gameId (${drawingBytes.length} bytes)');
       final uri = Uri.parse('$baseUrl/api/drawings/submit');
 
       final request = http.MultipartRequest('POST', uri)
@@ -41,11 +43,16 @@ class DrawingService {
       final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamedResponse);
 
+      debugPrint('[DrawingService] Submit response: ${response.statusCode}');
+
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
+        debugPrint('[DrawingService] Drawing submitted successfully. allSubmitted=${data['data']?['allSubmitted']}');
         return DrawingResult.fromJson(data['data']);
       } else {
-        throw Exception(data['error']?['message'] ?? 'Failed to submit drawing');
+        final errorMsg = data['error']?['message'] ?? 'Failed to submit drawing';
+        debugPrint('[DrawingService] Submit failed: $errorMsg');
+        throw Exception(errorMsg);
       }
     } catch (e) {
       debugPrint('[DrawingService] Submission error: $e');
@@ -53,7 +60,38 @@ class DrawingService {
     }
   }
 
+  /// Retry AI evaluation for a multiplayer game using already-stored drawings.
+  /// Does NOT require re-uploading the drawing.
+  Future<void> retryEvaluation({required String gameId}) async {
+    try {
+      debugPrint('[DrawingService] Retrying evaluation for game $gameId');
+      final uri = Uri.parse('$baseUrl/api/drawings/retry-evaluation');
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${getToken()}',
+        },
+        body: jsonEncode({'gameId': gameId}),
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        debugPrint('[DrawingService] Retry evaluation started successfully');
+      } else {
+        final errorMsg = data['error']?['message'] ?? 'Failed to retry evaluation';
+        debugPrint('[DrawingService] Retry failed: $errorMsg');
+        throw Exception(errorMsg);
+      }
+    } catch (e) {
+      debugPrint('[DrawingService] Retry evaluation error: $e');
+      rethrow;
+    }
+  }
+
   /// Evaluate a solo drawing for practice mode.
+  /// Throws on failure — NEVER returns fabricated scores.
   Future<DrawingResult> evaluateSoloDrawing({
     required String prompt,
     required Uint8List drawingBytes,
@@ -71,55 +109,20 @@ class DrawingService {
           contentType: MediaType('image', 'png'),
         ));
 
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
       final response = await http.Response.fromStream(streamedResponse);
 
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
         return DrawingResult.fromJson(data['data']);
+      } else {
+        final errorMsg = data['error']?['message'] ?? 'AI evaluation failed';
+        throw Exception(errorMsg);
       }
-    } catch (_) {}
-
-    return _buildFallbackResult(prompt, drawingBytes);
-  }
-
-  DrawingResult _buildFallbackResult(String prompt, Uint8List drawingBytes) {
-    final byteLen = drawingBytes.length;
-    final isBlank = byteLen < 300;
-    if (isBlank) {
-      return const DrawingResult(
-        score: 0,
-        grade: 'F',
-        confidence: 100,
-        explanation: ['Blank drawing submitted.'],
-        labels: [],
-        objectRecognitionScore: 0,
-        requiredFeaturesScore: 0,
-        compositionScore: 0,
-        creativityScore: 0,
-        strokeQualityScore: 0,
-        strengths: [],
-        weaknesses: ['Nothing drawn'],
-      );
+    } catch (e) {
+      debugPrint('[DrawingService] Solo evaluation error: $e');
+      rethrow;
     }
-    final calcScore = 65 + (byteLen % 28);
-    return DrawingResult(
-      score: calcScore,
-      grade: calcScore >= 90 ? 'S' : (calcScore >= 80 ? 'A' : 'B'),
-      confidence: 85,
-      explanation: [
-        'Drawing analyzed for prompt "$prompt".',
-        'Good stroke structure and canvas detail detected.'
-      ],
-      labels: [prompt, 'sketch'],
-      objectRecognitionScore: (calcScore * 0.95).round(),
-      requiredFeaturesScore: (calcScore * 0.90).round(),
-      compositionScore: (calcScore * 0.92).round(),
-      creativityScore: (calcScore * 0.88).round(),
-      strokeQualityScore: (calcScore * 0.94).round(),
-      strengths: const ['Good outline definition'],
-      weaknesses: const ['Add subtle shading for extra detail'],
-    );
   }
 
   /// Get all drawings and rankings for a completed game.
