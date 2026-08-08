@@ -206,6 +206,12 @@ class MockCollection {
     return new MockQuery(this).offset(n);
   }
 
+  async add(data) {
+    const docRef = this.doc();
+    await docRef.set(data);
+    return docRef;
+  }
+
   async get() {
     const docs = Object.values(store[this.path] || {}).map(data => new MockFirestoreSnapshot(data.id, data, true));
     return new MockQuerySnapshot(docs);
@@ -259,6 +265,14 @@ class MockDocument {
     saveToDisk();
     return this;
   }
+
+  async delete() {
+    if (store[this.collection.path] && store[this.collection.path][this.id]) {
+      delete store[this.collection.path][this.id];
+      saveToDisk();
+    }
+    return this;
+  }
 }
 
 class MockBatch {
@@ -285,12 +299,31 @@ class MockBatch {
   }
 }
 
+class MockTransaction {
+  async get(docRef) {
+    return await docRef.get();
+  }
+  set(docRef, data) {
+    return docRef.set(data);
+  }
+  update(docRef, data) {
+    return docRef.update(data);
+  }
+  delete(docRef) {
+    return docRef.delete();
+  }
+}
+
 class MockFirestore {
   collection(name) {
     return new MockCollection(name);
   }
   batch() {
     return new MockBatch();
+  }
+  async runTransaction(updateFunction) {
+    const transaction = new MockTransaction();
+    return await updateFunction(transaction);
   }
 }
 

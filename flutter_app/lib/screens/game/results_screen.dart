@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../config/app_colors.dart';
 import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/drawing_provider.dart';
 import '../../providers/socket_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/confetti_painter.dart';
@@ -48,6 +49,7 @@ class _ResultsScreenState extends State<ResultsScreen>
   bool _scoreSaved = false;
 
   bool _stageInitialized = false;
+  String? _myDrawingBase64;
 
   @override
   void initState() {
@@ -90,6 +92,9 @@ class _ResultsScreenState extends State<ResultsScreen>
       _gameId = args['gameId'] as String?;
       if (args.containsKey('drawingsData') && args['drawingsData'] is Map<String, dynamic>) {
         _drawingsData = args['drawingsData'] as Map<String, dynamic>;
+      }
+      if (args.containsKey('myDrawingBase64') && args['myDrawingBase64'] is String) {
+        _myDrawingBase64 = args['myDrawingBase64'] as String;
       }
 
       _isSinglePlayerChallenge = args['isSinglePlayerChallenge'] == true;
@@ -435,21 +440,11 @@ class _ResultsScreenState extends State<ResultsScreen>
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  isTie ? '🤝 IT\'S A DRAW!' : '🏆 WINNER 🏆',
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                    color: winnerColor,
-                    letterSpacing: 2.0,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  winnerName,
+                  isTie ? '🤝 Winner: Draw' : '🏆 Winner: $winnerName',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.w900,
-                    color: textColor,
+                    color: winnerColor,
                     letterSpacing: 1.0,
                   ),
                   textAlign: TextAlign.center,
@@ -537,37 +532,93 @@ class _ResultsScreenState extends State<ResultsScreen>
                 ),
                 const SizedBox(height: 24),
 
-                // Winner Headline Card
+                // Winner Headline Card & Score Display
                 if (_isMultiplayer)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                    decoration: BoxDecoration(
-                      color: isTie ? AppColors.sunny.withOpacity(0.12) : (isIWon ? AppColors.mint.withOpacity(0.12) : AppColors.coral.withOpacity(0.12)),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
-                        width: 2,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          isTie ? LucideIcons.handshake : LucideIcons.crown,
-                          color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
-                          size: 24,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          isTie ? "It's a Draw! 🤝" : (isIWon ? "Victory! You Won! 🏆" : "$opponentName Won! 👑"),
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: textColor,
+                  Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                        decoration: BoxDecoration(
+                          color: isTie ? AppColors.sunny.withOpacity(0.12) : (isIWon ? AppColors.mint.withOpacity(0.12) : AppColors.coral.withOpacity(0.12)),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
+                            width: 2,
                           ),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              isTie ? LucideIcons.handshake : LucideIcons.crown,
+                              color: isTie ? AppColors.sunny : (isIWon ? AppColors.mint : AppColors.coral),
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              isTie ? "🤝 Winner: Draw" : "🏆 Winner: $winnerName",
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: borderColor, width: 1.5),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              'SCORE',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: primaryColor,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                Text(
+                                  '$myName — $myScore',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: textColor,
+                                  ),
+                                ),
+                                Text(
+                                  '•',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor.withOpacity(0.4),
+                                  ),
+                                ),
+                                Text(
+                                  '$opponentName — $opponentScore',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: textColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
 
                 const SizedBox(height: 24),
@@ -938,9 +989,14 @@ class _ResultsScreenState extends State<ResultsScreen>
 
   Widget _buildDrawingImageWidget(String uid, Color textColor) {
     try {
-      final imgDataStr = _drawingsData?['drawings']?[uid]?['imageData'] as String?;
-      if (imgDataStr != null && imgDataStr.startsWith('data:image')) {
-        final base64Part = imgDataStr.split(',').last;
+      String? imgDataStr = _drawingsData?['drawings']?[uid]?['imageData'] as String?;
+      final String myUid = context.read<AuthProvider>().uid;
+      if ((imgDataStr == null || imgDataStr.isEmpty) && (uid == myUid || uid.isEmpty)) {
+        imgDataStr = _myDrawingBase64 ?? context.read<DrawingProvider>().lastSubmittedBase64;
+      }
+
+      if (imgDataStr != null && imgDataStr.isNotEmpty) {
+        final base64Part = imgDataStr.contains(',') ? imgDataStr.split(',').last : imgDataStr;
         final bytes = base64Decode(base64Part);
         return Image.memory(
           bytes,

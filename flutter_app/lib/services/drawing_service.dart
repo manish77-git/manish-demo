@@ -144,6 +144,7 @@ class DrawingService {
   }) async {
     final uri = Uri.parse('$baseUrl/api/drawings/analyze');
     final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer ${getToken()}'
       ..fields['prompt'] = prompt
       ..files.add(http.MultipartFile.fromBytes(
         'drawing',

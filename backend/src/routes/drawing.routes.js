@@ -16,8 +16,8 @@ router.get('/ai-status', (req, res) => {
 
 router.post('/submit', authMiddleware, uploadMiddleware, submitDrawing);
 router.post('/retry-evaluation', authMiddleware, retryEvaluation);
-router.post('/evaluate-solo', uploadMiddleware, evaluateSoloDrawing);
-router.post('/analyze', uploadMiddleware, analyzeDrawingLive);
+router.post('/evaluate-solo', authMiddleware, uploadMiddleware, evaluateSoloDrawing);
+router.post('/analyze', authMiddleware, uploadMiddleware, analyzeDrawingLive);
 router.get('/random-prompt', (req, res) => {
   const { difficulty, category } = req.query;
   const promptObj = getRandomPrompt(difficulty || 'all', category || 'all');

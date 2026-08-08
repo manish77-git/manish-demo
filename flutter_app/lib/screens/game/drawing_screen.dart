@@ -17,7 +17,6 @@ import '../../services/prompt_service.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import '../../models/drawing_submission.dart';
 import '../../services/audio_service.dart';
 
 const List<String> _practicePrompts = [
@@ -43,6 +42,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
   bool _isMultiplayer = false;
   bool _isSpectator = false;
   bool _hasFetchedPrompt = false;
+
+  // Match result workflow state
+  bool _isDrawingDisabled = false;
+  Map<String, dynamic>? _pendingResultsData;
+  String? _mySubmittedBase64;
+  bool _hasSubmittedDrawing = false;
 
   // Live Score State
   int _lastStrokeCount = 0;
@@ -239,34 +244,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
           _evaluatingMsgTimer?.cancel();
 
           if (mounted) {
-            _timer?.cancel();
-            setState(() {
-              _isEvaluating = false;
-              _waitingForOpponent = false;
-            });
-
-            final myUid = context.read<AuthProvider>().uid;
-            final drawingsMap = resultsData['drawings'] as Map<String, dynamic>? ?? {};
-            final myData = drawingsMap[myUid] as Map<String, dynamic>? ?? {};
-            final score = (myData['score'] as num? ?? 0).toInt();
-            final grade = myData['grade'] as String? ?? 'F';
-            final explanation = List<String>.from(myData['explanation'] as List? ?? []);
-
-            debugPrint('[LOG] Results screen opened for game ${socketProvider.roomCode}');
-            Navigator.pushReplacementNamed(
-              context,
-              '/results',
-              arguments: {
-                'score': score,
-                'grade': grade,
-                'explanation': explanation,
-                'prompt': _currentPrompt,
-                'isMultiplayer': true,
-                'gameId': socketProvider.roomCode,
-                'drawingsData': resultsData,
-                'winnerId': resultsData['winnerId'],
-              },
-            );
+            _pendingResultsData = resultsData;
+            if (_timeLeft <= 0) {
+              _checkAndNavigateToResults();
+            } else {
+              debugPrint('[LOG] Received game results early while timer is $_timeLeft s — waiting for timer 00:00');
+            }
           }
         };
 
@@ -306,9 +289,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
             } else if (_timeLeft <= 30 && _timeLeft > 0 && _timeLeft % 5 == 0) {
               AudioService().playTick();
             }
+            if (_timeLeft == 0) {
+              _timer?.cancel();
+              _isDrawingDisabled = true;
+              AudioService().playRoundEnd();
+              _handleTimeUp();
+            }
           } else {
             _timer?.cancel();
-            AudioService().playRoundEnd();
+            _isDrawingDisabled = true;
             _handleTimeUp();
           }
         });
@@ -446,8 +435,75 @@ class _DrawingScreenState extends State<DrawingScreen> {
   }
 
   void _handleTimeUp() {
-    if (_isEvaluating) return;
-    _handleSubmit();
+    if (!mounted) return;
+    setState(() {
+      _isDrawingDisabled = true;
+      _isEvaluating = true;
+    });
+
+    if (!_hasSubmittedDrawing) {
+      _handleSubmit();
+    } else if (_pendingResultsData != null && _timeLeft <= 0) {
+      _checkAndNavigateToResults();
+    }
+  }
+
+  void _checkAndNavigateToResults() {
+    if (!mounted) return;
+    if (_timeLeft > 0) {
+      debugPrint('[LOG] Cannot navigate to Results yet: timer is $_timeLeft s');
+      return;
+    }
+    if (_pendingResultsData == null) {
+      debugPrint('[LOG] Cannot navigate to Results yet: AI evaluation data not received');
+      return;
+    }
+
+    _timer?.cancel();
+    _evalTimeoutTimer?.cancel();
+    _evaluatingMsgTimer?.cancel();
+
+    setState(() {
+      _isEvaluating = false;
+      _waitingForOpponent = false;
+    });
+
+    if (_isMultiplayer) {
+      final socketProvider = context.read<SocketProvider>();
+      final myUid = context.read<AuthProvider>().uid;
+      final drawingsMap = _pendingResultsData!['drawings'] as Map<String, dynamic>? ?? {};
+      final myData = drawingsMap[myUid] as Map<String, dynamic>? ?? {};
+      final score = (myData['score'] as num? ?? 0).toInt();
+      final grade = myData['grade'] as String? ?? 'F';
+      final explanation = List<String>.from(myData['explanation'] as List? ?? []);
+
+      debugPrint('[LOG] Opening Results screen for game ${socketProvider.roomCode} after timer 00:00 & AI evaluation');
+      Navigator.pushReplacementNamed(
+        context,
+        '/results',
+        arguments: {
+          'score': score,
+          'grade': grade,
+          'explanation': explanation,
+          'prompt': _currentPrompt,
+          'isMultiplayer': true,
+          'gameId': socketProvider.roomCode,
+          'drawingsData': _pendingResultsData,
+          'winnerId': _pendingResultsData!['winnerId'],
+          'myDrawingBase64': _mySubmittedBase64,
+        },
+      );
+    } else {
+      debugPrint('[LOG] Opening Solo Results screen after timer 00:00 & AI evaluation');
+      Navigator.pushReplacementNamed(
+        context,
+        '/results',
+        arguments: {
+          ..._pendingResultsData!,
+          'myDrawingBase64': _mySubmittedBase64,
+        },
+      );
+    }
   }
 
   void _pickNewWord() {
@@ -457,16 +513,19 @@ class _DrawingScreenState extends State<DrawingScreen> {
   }
 
   Future<void> _handleSubmit() async {
-    if (_isEvaluating) return;
+    if (_hasSubmittedDrawing) return;
 
     debugPrint('[LOG] Player submitted drawing');
     debugPrint('[LOG] Evaluation started');
 
     setState(() {
+      _isDrawingDisabled = true;
       _isEvaluating = true;
+      _hasSubmittedDrawing = true;
       _evaluatingMsgIndex = 0;
     });
 
+    _evaluatingMsgTimer?.cancel();
     _evaluatingMsgTimer = Timer.periodic(const Duration(seconds: 2), (t) {
       if (mounted && _isEvaluating) {
         setState(() {
@@ -484,20 +543,21 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     try {
       final bytes = await drawing.exportToPng(const Size(400, 400));
+      if (bytes != null && bytes.isNotEmpty) {
+        _mySubmittedBase64 = 'data:image/png;base64,${base64Encode(bytes)}';
+        drawing.cacheLastSubmittedDrawing(bytes, _mySubmittedBase64!);
+      }
 
       final service = DrawingService(
         baseUrl: ApiConfig.serverUrl,
         getToken: () => auth.idToken,
       );
 
-      DrawingResult result;
       if (_isMultiplayer && roomCode != null && roomCode.isNotEmpty) {
         setState(() {
           _waitingForOpponent = true;
         });
 
-        // No client-side timeout — the server handles AI timeouts and retries.
-        // The client waits for either game:results or game:evaluation_failed socket events.
         _evalTimeoutTimer?.cancel();
 
         // Submit drawing PNG to backend
@@ -505,41 +565,40 @@ class _DrawingScreenState extends State<DrawingScreen> {
           gameId: roomCode,
           drawingBytes: bytes ?? Uint8List(0),
         );
-        debugPrint('[LOG] Player submission sent to backend for game $roomCode');
+        debugPrint('[LOG] Player submission uploaded to backend for game $roomCode');
+
+        if (_pendingResultsData != null && _timeLeft <= 0) {
+          _checkAndNavigateToResults();
+        }
       } else {
-        result = await service.evaluateSoloDrawing(
+        final result = await service.evaluateSoloDrawing(
           prompt: _currentPrompt,
           drawingBytes: bytes ?? Uint8List(0),
         );
 
-        if (mounted) {
-          setState(() {
-            _isEvaluating = false;
-          });
-          Navigator.pushReplacementNamed(
-            context,
-            '/results',
-            arguments: {
-              'score': result.score,
-              'grade': result.grade,
-              'confidence': result.confidence,
-              'explanation': result.explanation,
-              'labels': result.labels,
-              'objectRecognitionScore': result.objectRecognitionScore,
-              'requiredFeaturesScore': result.requiredFeaturesScore,
-              'compositionScore': result.compositionScore,
-              'creativityScore': result.creativityScore,
-              'strokeQualityScore': result.strokeQualityScore,
-              'strengths': result.strengths,
-              'weaknesses': result.weaknesses,
-              'prompt': _currentPrompt,
-              'isMultiplayer': false,
-              'isSinglePlayerChallenge': _isSinglePlayerChallenge,
-              'currentRound': _currentRound,
-              'totalRounds': _totalRounds,
-              'cumulativeScore': _cumulativeScore + result.score,
-            },
-          );
+        _pendingResultsData = {
+          'score': result.score,
+          'grade': result.grade,
+          'confidence': result.confidence,
+          'explanation': result.explanation,
+          'labels': result.labels,
+          'objectRecognitionScore': result.objectRecognitionScore,
+          'requiredFeaturesScore': result.requiredFeaturesScore,
+          'compositionScore': result.compositionScore,
+          'creativityScore': result.creativityScore,
+          'strokeQualityScore': result.strokeQualityScore,
+          'strengths': result.strengths,
+          'weaknesses': result.weaknesses,
+          'prompt': _currentPrompt,
+          'isMultiplayer': false,
+          'isSinglePlayerChallenge': _isSinglePlayerChallenge,
+          'currentRound': _currentRound,
+          'totalRounds': _totalRounds,
+          'cumulativeScore': _cumulativeScore + result.score,
+        };
+
+        if (_timeLeft <= 0) {
+          _checkAndNavigateToResults();
         }
       }
     } catch (e) {
@@ -550,10 +609,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
           _waitingForOpponent = false;
         });
         _showEvaluationErrorDialog();
-      }
-    } finally {
-      if (mounted && !_isMultiplayer) {
-        setState(() => _isEvaluating = false);
       }
     }
   }
@@ -763,40 +818,71 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 ),
               ),
 
-            // Evaluating & Waiting overlay
-            if (_isEvaluating || _waitingForOpponent)
-              Container(
-                color: Colors.black.withOpacity(0.7),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.space32, vertical: AppTheme.space24),
-                    decoration: AppTheme.gameCard(context),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const AnimatedInky(size: 85, expression: InkyExpression.thinking),
-                        const SizedBox(height: AppTheme.space16),
-                        SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: CircularProgressIndicator(strokeWidth: 3, color: primaryColor),
-                        ),
-                        const SizedBox(height: AppTheme.space16),
-                        Text(
-                          _waitingForOpponent
-                              ? 'Waiting for opponent & AI evaluation...'
-                              : _evaluatingMessages[_evaluatingMsgIndex],
-                          style: Theme.of(context).textTheme.headlineMedium,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: AppTheme.space4),
-                        Text(
-                          _opponentFinished
-                              ? '$_opponentFinishedName submitted their drawing!'
-                              : 'Evaluating prompt: "$_currentPrompt"',
-                          style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.bold),
-                        ),
-                      ],
+            // Evaluating & Waiting overlay — PopScope blocks back navigation until evaluation completes
+            if (_isEvaluating || _waitingForOpponent || (_timeLeft == 0 && _pendingResultsData == null))
+              PopScope(
+                canPop: false,
+                child: Container(
+                  color: Colors.black.withOpacity(0.85),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: AppTheme.space32, vertical: AppTheme.space24),
+                      margin: const EdgeInsets.all(24),
+                      decoration: AppTheme.gameCard(context),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const AnimatedInky(size: 85, expression: InkyExpression.thinking),
+                          const SizedBox(height: AppTheme.space16),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 3, color: primaryColor),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                '⏳ AI is judging your drawings...',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  color: textColor,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              width: 240,
+                              child: LinearProgressIndicator(
+                                minHeight: 8,
+                                backgroundColor: primaryColor.withOpacity(0.2),
+                                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _waitingForOpponent
+                                ? 'Waiting for opponent & AI evaluation...'
+                                : _evaluatingMessages[_evaluatingMsgIndex],
+                            style: Theme.of(context).textTheme.headlineMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppTheme.space4),
+                          Text(
+                            _opponentFinished
+                                ? '$_opponentFinishedName submitted their drawing!'
+                                : 'Evaluating prompt: "$_currentPrompt"',
+                            style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -808,11 +894,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
   }
 
   Widget _buildCanvasArea(Color borderColor, Color primaryColor, Color cardBg) {
-    final ignoreTouch = _timeLeft == 0 || _isSpectator;
+    final ignoreTouch = _timeLeft == 0 || _isSpectator || _isDrawingDisabled;
 
     return IgnorePointer(
       ignoring: ignoreTouch,
-      child: const DrawingCanvas(),
+      child: DrawingCanvas(isReadOnly: ignoreTouch),
     );
   }
 

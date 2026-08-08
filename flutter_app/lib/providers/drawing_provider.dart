@@ -170,6 +170,18 @@ class DrawingProvider extends ChangeNotifier {
   double _smoothing = 5.0;
   bool _isSubmitting = false;
 
+  Uint8List? _lastSubmittedBytes;
+  String? _lastSubmittedBase64;
+
+  Uint8List? get lastSubmittedBytes => _lastSubmittedBytes;
+  String? get lastSubmittedBase64 => _lastSubmittedBase64;
+
+  void cacheLastSubmittedDrawing(Uint8List bytes, String base64) {
+    _lastSubmittedBytes = bytes;
+    _lastSubmittedBase64 = base64;
+    notifyListeners();
+  }
+
   // Tools toggles
   bool _mirrorDrawing = false;
   bool _stabilization = true;

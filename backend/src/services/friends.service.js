@@ -118,7 +118,7 @@ class FriendsService {
 
     const reqDoc = await db.collection('friend_requests').doc(requestId).get();
     if (reqDoc.exists) {
-      await db.collection('friend_requests').doc(requestId).set({ status: 'accepted' });
+      await db.collection('friend_requests').doc(requestId).update({ status: 'accepted' });
     }
 
     // Update user 1 friends list
@@ -153,8 +153,15 @@ class FriendsService {
     const req1 = `${fromUid}_${toUid}`;
     const req2 = `${toUid}_${fromUid}`;
 
-    await db.collection('friend_requests').doc(req1).set({ status: 'declined' });
-    await db.collection('friend_requests').doc(req2).set({ status: 'declined' });
+    const doc1 = await db.collection('friend_requests').doc(req1).get();
+    if (doc1.exists) {
+      await db.collection('friend_requests').doc(req1).update({ status: 'declined' });
+    }
+
+    const doc2 = await db.collection('friend_requests').doc(req2).get();
+    if (doc2.exists) {
+      await db.collection('friend_requests').doc(req2).update({ status: 'declined' });
+    }
 
     return { success: true };
   }

@@ -7,7 +7,12 @@ import '../config/app_colors.dart';
 
 /// Custom drawing canvas supporting multiple textured brushes, selections, and live opponents.
 class DrawingCanvas extends StatelessWidget {
-  const DrawingCanvas({super.key});
+  final bool isReadOnly;
+
+  const DrawingCanvas({
+    super.key,
+    this.isReadOnly = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,34 +39,40 @@ class DrawingCanvas extends StatelessWidget {
               ],
             ),
             child: InteractiveViewer(
-              panEnabled: drawing.currentTool == DrawingToolType.select,
+              panEnabled: !isReadOnly && drawing.currentTool == DrawingToolType.select,
               scaleEnabled: true,
               minScale: 0.8,
               maxScale: 4.0,
               child: GestureDetector(
-                onTapDown: (details) {
-                  final box = context.findRenderObject() as RenderBox;
-                  final point = box.globalToLocal(details.globalPosition);
-                  drawing.startStroke(point, canvasSize: box.size);
-                  drawing.endStroke();
-                },
-                onPanStart: (details) {
-                  final box = context.findRenderObject() as RenderBox;
-                  final point = box.globalToLocal(details.globalPosition);
-                  drawing.startStroke(point, canvasSize: box.size);
-                },
-                onPanUpdate: (details) {
-                  final box = context.findRenderObject() as RenderBox;
-                  final point = box.globalToLocal(details.globalPosition);
+                onTapDown: isReadOnly
+                    ? null
+                    : (details) {
+                        final box = context.findRenderObject() as RenderBox;
+                        final point = box.globalToLocal(details.globalPosition);
+                        drawing.startStroke(point, canvasSize: box.size);
+                        drawing.endStroke();
+                      },
+                onPanStart: isReadOnly
+                    ? null
+                    : (details) {
+                        final box = context.findRenderObject() as RenderBox;
+                        final point = box.globalToLocal(details.globalPosition);
+                        drawing.startStroke(point, canvasSize: box.size);
+                      },
+                onPanUpdate: isReadOnly
+                    ? null
+                    : (details) {
+                        final box = context.findRenderObject() as RenderBox;
+                        final point = box.globalToLocal(details.globalPosition);
 
-                  if (drawing.currentTool == DrawingToolType.select) {
-                    final delta = details.delta;
-                    drawing.moveSelectedStroke(delta);
-                  } else {
-                    drawing.addPoint(point);
-                  }
-                },
-                onPanEnd: (_) => drawing.endStroke(),
+                        if (drawing.currentTool == DrawingToolType.select) {
+                          final delta = details.delta;
+                          drawing.moveSelectedStroke(delta);
+                        } else {
+                          drawing.addPoint(point);
+                        }
+                      },
+                onPanEnd: isReadOnly ? null : (_) => drawing.endStroke(),
                 child: CustomPaint(
                   painter: _CanvasPainter(
                     strokes: drawing.strokes,

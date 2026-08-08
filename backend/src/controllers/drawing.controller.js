@@ -85,9 +85,10 @@ export async function triggerMatchEvaluation(gameId, io) {
     const scores = {};
     for (const [userId, evalData] of Object.entries(evalResults)) {
       const player = session.players.find(p => p.userId === userId);
+      const displayName = player?.displayName || submissions[userId]?.displayName || userId;
       scores[userId] = {
         ...evalData,
-        displayName: player?.displayName || 'Player',
+        displayName,
         photoUrl: player?.photoUrl || null,
         prompt: session.prompt,
       };
@@ -108,7 +109,7 @@ export async function triggerMatchEvaluation(gameId, io) {
 
       drawingsMap[userId] = {
         userId,
-        displayName: scoreData.displayName || 'Player',
+        displayName: scoreData.displayName || userId,
         score: scoreData.score,
         grade: scoreData.grade,
         breakdown: scoreData.breakdown,
@@ -330,7 +331,7 @@ export async function getGameDrawings(req, res, next) {
     for (const [userId, submission] of Object.entries(session.submissions || {})) {
       drawings[userId] = {
         score: submission.score,
-        displayName: submission.displayName || 'Player',
+        displayName: submission.displayName || userId,
         photoUrl: submission.photoUrl,
         grade: submission.grade,
         explanation: submission.explanation,

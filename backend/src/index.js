@@ -312,6 +312,12 @@ async function bootstrap() {
       const room = lobbyManager.rooms.get(actualRoomCode);
       if (!room) return;
 
+      // Cancel any existing auto-eval timer
+      if (room._autoEvalTimer) {
+        clearTimeout(room._autoEvalTimer);
+        room._autoEvalTimer = null;
+      }
+
       const roundInfo = lobbyManager.advanceRound(actualRoomCode);
       if (!roundInfo) {
         // No more rounds — finalize
@@ -338,14 +344,55 @@ async function bootstrap() {
         });
       } catch (_) {}
 
-      io.to(actualRoomCode).emit('match:start', {
+      // Emit game:status countdown
+      io.to(actualRoomCode).emit('game:status', { status: 'countdown', gameId: actualRoomCode });
+
+      // Emit 3-second countdown signal
+      io.to(actualRoomCode).emit('match:countdown', {
+        countdownSeconds: 3,
         prompt: promptInfo.prompt,
         duration: room.settings.duration,
         currentRound: roundInfo.currentRound,
         totalRounds: roundInfo.totalRounds,
       });
 
-      logger.info(`[NEXT ROUND] Room ${actualRoomCode} advanced to round ${roundInfo.currentRound}/${roundInfo.totalRounds} | Prompt: "${promptInfo.prompt}"`);
+      logger.info(`[NEXT ROUND] Room ${actualRoomCode} countdown started for round ${roundInfo.currentRound}/${roundInfo.totalRounds} | Prompt: "${promptInfo.prompt}"`);
+
+      setTimeout(() => {
+        io.to(actualRoomCode).emit('game:status', { status: 'drawing', gameId: actualRoomCode });
+        io.to(actualRoomCode).emit('match:start', {
+          prompt: promptInfo.prompt,
+          duration: room.settings.duration,
+          currentRound: roundInfo.currentRound,
+          totalRounds: roundInfo.totalRounds,
+        });
+
+        logger.info(`[NEXT ROUND] Room ${actualRoomCode} drawing started for round ${roundInfo.currentRound}/${roundInfo.totalRounds}`);
+
+        // Server-side auto-eval timer safeguard
+        const autoEvalBufferMs = (room.settings.duration + 5) * 1000;
+        const autoEvalTimer = setTimeout(async () => {
+          logger.info(`[TIMER] Auto-eval timer expired for game ${actualRoomCode} (round ${roundInfo.currentRound}), checking...`);
+          try {
+            const currentSession = await getFirestore().collection('gameSessions').doc(actualRoomCode).get();
+            if (currentSession.exists) {
+              const sessionData = currentSession.data();
+              if (sessionData.status === 'drawing') {
+                logger.info(`[TIMER] Game ${actualRoomCode} still in drawing state at timer expiry — triggering evaluation`);
+                triggerMatchEvaluation(actualRoomCode, io).catch(err => {
+                  logger.error(`[TIMER] Error in auto-evaluation for game ${actualRoomCode}:`, err.message);
+                });
+              }
+            }
+          } catch (err) {
+            logger.error(`[TIMER] Error checking game state for auto-eval: ${err.message}`);
+          }
+        }, autoEvalBufferMs);
+
+        if (room) {
+          room._autoEvalTimer = autoEvalTimer;
+        }
+      }, 3000);
     });
 
     // ─── Room: Rematch (Reset without new room) ───────────

@@ -200,7 +200,7 @@ async function callGroqApi(imageBuffer, drawingPrompt) {
   const timeoutId = setTimeout(() => controller.abort(), 45000);
 
   try {
-    logger.info(`[AI REQUEST] Groq Vision API call: model=llama-3.2-11b-vision-instruct, prompt="${drawingPrompt}"`);
+    logger.info(`[AI REQUEST] Groq Vision API call: model=llama-3.2-11b-vision-preview, prompt="${drawingPrompt}"`);
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -208,7 +208,7 @@ async function callGroqApi(imageBuffer, drawingPrompt) {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.2-11b-vision-instruct',
+        model: 'llama-3.2-11b-vision-preview',
         messages: [
           {
             role: 'user',
@@ -390,7 +390,7 @@ export async function analyzeLiveWithGemini(imageBuffer, drawingPrompt) {
           'Authorization': `Bearer ${groqKey}`,
         },
         body: JSON.stringify({
-          model: 'llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.2-11b-vision-preview',
           messages: [{
             role: 'user',
             content: [

@@ -1,5 +1,11 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import { existsSync } from 'fs';
+
+if (existsSync('./backend/.env')) {
+  dotenv.config({ path: './backend/.env' });
+} else {
+  dotenv.config();
+}
 
 const env = {
   port: parseInt(process.env.PORT || '3000', 10),
