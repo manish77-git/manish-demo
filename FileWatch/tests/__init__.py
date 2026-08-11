@@ -1,1 +1,0 @@
-# FileWatch tests package
