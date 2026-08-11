@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# FileWatch runtime files
+*.db
+*.sqlite
+*.sqlite3
+filewatch.db
+filewatch.db-wal
+filewatch.db-shm
+filewatch_config.json
+
+# Test artifacts
+_test_workspace/
+_test_filewatch.db
+_test_filewatch.db-wal
+_test_filewatch.db-shm
+
+# Export output
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

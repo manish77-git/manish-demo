@@ -1,0 +1,1 @@
+# FileWatch core package
