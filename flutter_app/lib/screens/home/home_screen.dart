@@ -336,6 +336,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
+              children: [
                 ActionChip(
                   label: const Text('Render'),
                   onPressed: () {
@@ -348,6 +349,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     controller.text = 'http://localhost:3000';
                   },
                 ),
+              ],
             ),
           ],
         ),
