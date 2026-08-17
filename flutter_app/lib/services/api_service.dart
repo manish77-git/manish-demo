@@ -21,7 +21,7 @@ class ApiConfig {
       return _customUrl!;
     }
     if (kIsWeb && !Uri.base.toString().contains('localhost')) {
-      return 'https://draw-battle-backend.onrender.com';
+      return 'https://manish-demo-13r9.onrender.com';
     }
     return 'http://localhost:3000';
   }

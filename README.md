@@ -167,7 +167,8 @@ Add the following in the **Environment** tab:
 - `GEMINI_API_KEY`: *(your Google Gemini / AI key)*
 - `AI_MODEL_MODE`: `vision`
 
-Your service will receive a live URL: `https://draw-battle-backend.onrender.com` (or your chosen service name).
+- **Backend API URL**: [https://manish-demo-13r9.onrender.com](https://manish-demo-13r9.onrender.com)
+- **Health Check**: [https://manish-demo-13r9.onrender.com/api/health](https://manish-demo-13r9.onrender.com/api/health)
 
 ## License
 
