@@ -558,14 +558,16 @@ async function bootstrap() {
   app.use(errorHandler);
 
   // ─── Start Server ───────────────────────────────────────
-  httpServer.listen(env.port, () => {
+  const HOST = '0.0.0.0';
+  httpServer.listen(env.port, HOST, () => {
     logger.info(`
 ╔══════════════════════════════════════════════╗
 ║           🎨 DrawBattle API Server           ║
 ║──────────────────────────────────────────────║
+║  Host:      ${HOST.padEnd(33)}║
 ║  Port:      ${String(env.port).padEnd(33)}║
 ║  Mode:      ${String(env.nodeEnv).padEnd(33)}║
-║  Health:    http://localhost:${env.port}/api/health${' '.repeat(Math.max(0, 8 - String(env.port).length))}║
+║  Health:    http://${HOST}:${env.port}/api/health${' '.repeat(Math.max(0, 8 - String(env.port).length))}║
 ╚══════════════════════════════════════════════╝
     `);
   });
