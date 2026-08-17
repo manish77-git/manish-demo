@@ -142,16 +142,34 @@ cd ..
 firebase deploy --only hosting
 ```
 
-### Backend (Railway)
-The Node.js socket backend is successfully deployed and running on Railway:
-- **Backend API URL**: [https://draw-battle-backend-production.up.railway.app](https://draw-battle-backend-production.up.railway.app)
-- **Health Check**: [https://draw-battle-backend-production.up.railway.app/api/health](https://draw-battle-backend-production.up.railway.app/api/health)
+### Backend (Render.com - Free Tier)
+The Node.js backend can be deployed completely free on Render:
+- **Free Allowance**: 750 free instance hours / month (covers 24/7 continuous operation for 1 service)
+- **Automatic Deploys**: Syncs directly with your GitHub repository
 
-To redeploy the backend:
-```bash
-railway up ./backend --path-as-root --service draw-battle-backend --detach
-```
+#### Step 1: Connect to Render
+1. Go to [Render.com](https://render.com) and sign in with GitHub.
+2. Click **New +** → **Web Service**.
+3. Select your repository `draw-battle`.
+
+#### Step 2: Configure Web Service
+- **Name**: `draw-battle-backend`
+- **Root Directory**: `backend`
+- **Runtime**: `Node`
+- **Build Command**: `npm install`
+- **Start Command**: `npm start`
+- **Plan Type**: `Free`
+
+#### Step 3: Environment Variables
+Add the following in the **Environment** tab:
+- `PORT`: `10000` (Render sets port automatically or uses 10000)
+- `NODE_ENV`: `production`
+- `GEMINI_API_KEY`: *(your Google Gemini / AI key)*
+- `AI_MODEL_MODE`: `vision`
+
+Your service will receive a live URL: `https://draw-battle-backend.onrender.com` (or your chosen service name).
 
 ## License
 
 MIT
+

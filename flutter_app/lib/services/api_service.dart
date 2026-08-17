@@ -21,7 +21,7 @@ class ApiConfig {
       return _customUrl!;
     }
     if (kIsWeb && !Uri.base.toString().contains('localhost')) {
-      return 'https://draw-battle-backend-production.up.railway.app';
+      return 'https://draw-battle-backend.onrender.com';
     }
     return 'http://localhost:3000';
   }

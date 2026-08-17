@@ -1,7 +1,7 @@
 {
   "name": "draw-battle",
   "version": "2.0.0",
-  "description": "DrawBattle production multiplayer server for Railway deployment",
+  "description": "DrawBattle production multiplayer backend server",
   "main": "backend/src/index.js",
   "scripts": {
     "start": "node backend/src/index.js",

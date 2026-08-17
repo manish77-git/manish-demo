@@ -336,20 +336,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
-              children: [
+                ActionChip(
+                  label: const Text('Render'),
+                  onPressed: () {
+                    controller.text = 'https://draw-battle-backend.onrender.com';
+                  },
+                ),
                 ActionChip(
                   label: const Text('Localhost'),
                   onPressed: () {
                     controller.text = 'http://localhost:3000';
                   },
                 ),
-                ActionChip(
-                  label: const Text('Railway'),
-                  onPressed: () {
-                    controller.text = 'https://draw-battle-backend-production.up.railway.app';
-                  },
-                ),
-              ],
             ),
           ],
         ),
